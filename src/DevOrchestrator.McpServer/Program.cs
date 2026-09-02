@@ -81,10 +81,10 @@ app.Use(async (context, next) =>
 {
     if (context.Request.Path.StartsWithSegments("/control"))
     {
-        context.Response.Headers.ContentSecurityPolicy = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
-        context.Response.Headers.XFrameOptions = "DENY";
-        context.Response.Headers.XContentTypeOptions = "nosniff";
-        context.Response.Headers.ReferrerPolicy = "no-referrer";
+        context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+        context.Response.Headers["X-Frame-Options"] = "DENY";
+        context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+        context.Response.Headers["Referrer-Policy"] = "no-referrer";
     }
 
     await next();
@@ -107,6 +107,7 @@ app.MapGet("/readyz", async (OrchestratorDbContext dbContext, CancellationToken 
 });
 
 app.MapControlPlaneEndpoints();
+app.MapControlPlaneTaskDetailEndpoints();
 app.MapOperationsEndpoints();
 app.MapGitHubWebhook().RequireRateLimiting("webhook");
 app.MapMcp("/mcp").RequireRateLimiting("mcp");
