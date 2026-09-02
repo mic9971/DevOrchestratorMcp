@@ -17,8 +17,8 @@ public sealed class GitHubWebhookInboxItem
         Action = notification.Action;
         RepositoryUrl = notification.RepositoryUrl;
         IssueNumber = notification.IssueNumber;
-        ReceivedAtUtc = receivedAtUtc;
-        NextAttemptAtUtc = receivedAtUtc;
+        ReceivedAtUtc = receivedAtUtc.UtcDateTime;
+        NextAttemptAtUtc = receivedAtUtc.UtcDateTime;
     }
 
     public string DeliveryId { get; private set; } = string.Empty;
@@ -27,10 +27,10 @@ public sealed class GitHubWebhookInboxItem
     public string RepositoryUrl { get; private set; } = string.Empty;
     public int IssueNumber { get; private set; }
     public int AttemptCount { get; private set; }
-    public DateTimeOffset ReceivedAtUtc { get; private set; }
-    public DateTimeOffset NextAttemptAtUtc { get; private set; }
-    public DateTimeOffset? LeaseExpiresAtUtc { get; private set; }
-    public DateTimeOffset? CompletedAtUtc { get; private set; }
+    public DateTime ReceivedAtUtc { get; private set; }
+    public DateTime NextAttemptAtUtc { get; private set; }
+    public DateTime? LeaseExpiresAtUtc { get; private set; }
+    public DateTime? CompletedAtUtc { get; private set; }
     public string? LastError { get; private set; }
 
     public static GitHubWebhookInboxItem Create(
