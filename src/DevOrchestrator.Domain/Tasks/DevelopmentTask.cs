@@ -35,6 +35,7 @@ public sealed class DevelopmentTask
         Status = DevelopmentTaskStatus.Draft;
         CreatedAtUtc = now;
         UpdatedAtUtc = now;
+        Revision = 0;
     }
 
     public Guid Id { get; private set; }
@@ -64,6 +65,8 @@ public sealed class DevelopmentTask
     public DateTimeOffset CreatedAtUtc { get; private set; }
 
     public DateTimeOffset UpdatedAtUtc { get; private set; }
+
+    public long Revision { get; private set; }
 
     public IReadOnlyCollection<AcceptanceCriterion> AcceptanceCriteria => _acceptanceCriteria;
 
@@ -144,7 +147,7 @@ public sealed class DevelopmentTask
     {
         EnsureStatus(DevelopmentTaskStatus.Draft);
         Status = DevelopmentTaskStatus.Ready;
-        UpdatedAtUtc = now;
+        Touch(now);
         AddEvent("task.ready", actor, "{}", now);
     }
 
@@ -158,7 +161,7 @@ public sealed class DevelopmentTask
         Status = DevelopmentTaskStatus.InProgress;
         ActiveBranch = string.IsNullOrWhiteSpace(branch) ? ActiveBranch : branch.Trim();
         BlockReason = null;
-        UpdatedAtUtc = now;
+        Touch(now);
         AddEvent("task.started", actor, "{}", now);
     }
 
@@ -181,7 +184,7 @@ public sealed class DevelopmentTask
         ActiveBranch = item.Branch;
         LastCommitSha = item.CommitSha;
         PullRequestUrl = item.PullRequestUrl ?? PullRequestUrl;
-        UpdatedAtUtc = now;
+        Touch(now);
         AddEvent("task.evidence_added", actor, payloadJson, now);
     }
 
@@ -195,7 +198,7 @@ public sealed class DevelopmentTask
         }
 
         Status = DevelopmentTaskStatus.ReadyForReview;
-        UpdatedAtUtc = now;
+        Touch(now);
         AddEvent("task.submitted_for_review", actor, "{}", now);
     }
 
@@ -235,7 +238,7 @@ public sealed class DevelopmentTask
             AddEvent("review.changes_requested", actor, findingsJson, now);
         }
 
-        UpdatedAtUtc = now;
+        Touch(now);
     }
 
     public void Block(string actor, string reason, DateTimeOffset now)
@@ -247,7 +250,7 @@ public sealed class DevelopmentTask
 
         BlockReason = Guard.NotBlank(reason, nameof(reason), 2000);
         Status = DevelopmentTaskStatus.Blocked;
-        UpdatedAtUtc = now;
+        Touch(now);
         AddEvent("task.blocked", actor, "{}", now);
     }
 
@@ -256,7 +259,7 @@ public sealed class DevelopmentTask
         EnsureStatus(DevelopmentTaskStatus.Blocked);
         BlockReason = null;
         Status = DevelopmentTaskStatus.Ready;
-        UpdatedAtUtc = now;
+        Touch(now);
         AddEvent("task.resumed", actor, "{}", now);
     }
 
@@ -273,7 +276,7 @@ public sealed class DevelopmentTask
         }
 
         Status = DevelopmentTaskStatus.ChangesRequested;
-        UpdatedAtUtc = now;
+        Touch(now);
         AddEvent("task.reopened", actor, JsonSerializer.Serialize(new { reason }), now);
     }
 
@@ -285,7 +288,12 @@ public sealed class DevelopmentTask
         }
     }
 
+    private void Touch(DateTimeOffset now)
+    {
+        UpdatedAtUtc = now;
+        Revision = checked(Revision + 1);
+    }
+
     private void AddEvent(string eventType, string actor, string payloadJson, DateTimeOffset now)
         => _events.Add(new TaskEvent(Id, eventType, actor, payloadJson, now));
-
 }
