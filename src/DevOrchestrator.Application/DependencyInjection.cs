@@ -13,6 +13,7 @@ public static class DependencyInjection
         services.AddScoped<ITaskService, TaskService>();
         services.AddScoped<IReviewService, ReviewService>();
         services.AddScoped<IGitHubBridgeService, GitHubBridgeService>();
+        services.AddScoped<IGitHubWebhookProcessor, GitHubWebhookProcessor>();
 
         return services;
     }
