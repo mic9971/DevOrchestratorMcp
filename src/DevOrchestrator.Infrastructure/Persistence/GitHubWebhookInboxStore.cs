@@ -37,12 +37,13 @@ internal sealed class GitHubWebhookInboxStore(OrchestratorDbContext dbContext)
         TimeSpan leaseDuration,
         CancellationToken cancellationToken)
     {
+        var nowUtc = now.UtcDateTime;
         var candidateId = await dbContext.GitHubWebhookInbox
             .AsNoTracking()
             .Where(x =>
                 x.CompletedAtUtc == null &&
-                x.NextAttemptAtUtc <= now &&
-                (x.LeaseExpiresAtUtc == null || x.LeaseExpiresAtUtc <= now))
+                x.NextAttemptAtUtc <= nowUtc &&
+                (x.LeaseExpiresAtUtc == null || x.LeaseExpiresAtUtc <= nowUtc))
             .OrderBy(x => x.ReceivedAtUtc)
             .Select(x => x.DeliveryId)
             .FirstOrDefaultAsync(cancellationToken);
@@ -52,16 +53,16 @@ internal sealed class GitHubWebhookInboxStore(OrchestratorDbContext dbContext)
             return null;
         }
 
-        var leaseUntil = now.Add(leaseDuration);
+        var leaseUntilUtc = nowUtc.Add(leaseDuration);
         var updated = await dbContext.GitHubWebhookInbox
             .Where(x =>
                 x.DeliveryId == candidateId &&
                 x.CompletedAtUtc == null &&
-                x.NextAttemptAtUtc <= now &&
-                (x.LeaseExpiresAtUtc == null || x.LeaseExpiresAtUtc <= now))
+                x.NextAttemptAtUtc <= nowUtc &&
+                (x.LeaseExpiresAtUtc == null || x.LeaseExpiresAtUtc <= nowUtc))
             .ExecuteUpdateAsync(
                 setters => setters
-                    .SetProperty(x => x.LeaseExpiresAtUtc, leaseUntil)
+                    .SetProperty(x => x.LeaseExpiresAtUtc, leaseUntilUtc)
                     .SetProperty(x => x.AttemptCount, x => x.AttemptCount + 1),
                 cancellationToken);
 
@@ -81,14 +82,17 @@ internal sealed class GitHubWebhookInboxStore(OrchestratorDbContext dbContext)
         string deliveryId,
         DateTimeOffset completedAtUtc,
         CancellationToken cancellationToken)
-        => dbContext.GitHubWebhookInbox
+    {
+        var completedUtc = completedAtUtc.UtcDateTime;
+        return dbContext.GitHubWebhookInbox
             .Where(x => x.DeliveryId == deliveryId)
             .ExecuteUpdateAsync(
                 setters => setters
-                    .SetProperty(x => x.CompletedAtUtc, completedAtUtc)
-                    .SetProperty(x => x.LeaseExpiresAtUtc, (DateTimeOffset?)null)
+                    .SetProperty(x => x.CompletedAtUtc, completedUtc)
+                    .SetProperty(x => x.LeaseExpiresAtUtc, (DateTime?)null)
                     .SetProperty(x => x.LastError, (string?)null),
                 cancellationToken);
+    }
 
     public Task RetryAsync(
         string deliveryId,
@@ -97,12 +101,13 @@ internal sealed class GitHubWebhookInboxStore(OrchestratorDbContext dbContext)
         CancellationToken cancellationToken)
     {
         var storedError = error.Length <= 4000 ? error : error.Substring(0, 4000);
+        var nextAttemptUtc = nextAttemptAtUtc.UtcDateTime;
         return dbContext.GitHubWebhookInbox
             .Where(x => x.DeliveryId == deliveryId)
             .ExecuteUpdateAsync(
                 setters => setters
-                    .SetProperty(x => x.LeaseExpiresAtUtc, (DateTimeOffset?)null)
-                    .SetProperty(x => x.NextAttemptAtUtc, nextAttemptAtUtc)
+                    .SetProperty(x => x.LeaseExpiresAtUtc, (DateTime?)null)
+                    .SetProperty(x => x.NextAttemptAtUtc, nextAttemptUtc)
                     .SetProperty(x => x.LastError, storedError),
                 cancellationToken);
     }
