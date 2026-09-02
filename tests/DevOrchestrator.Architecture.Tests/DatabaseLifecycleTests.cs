@@ -3,6 +3,8 @@ using DevOrchestrator.Domain.Projects;
 using DevOrchestrator.Infrastructure;
 using DevOrchestrator.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -23,7 +25,8 @@ public sealed class DatabaseLifecycleTests
 
             await using (var legacy = new OrchestratorDbContext(options))
             {
-                await legacy.Database.MigrateAsync(DatabaseInitializer.InitialMigrationId);
+                var migrator = legacy.GetService<IMigrator>();
+                await migrator.MigrateAsync(DatabaseInitializer.InitialMigrationId);
                 await legacy.Database.ExecuteSqlRawAsync("DELETE FROM __EFMigrationsHistory;");
             }
 
@@ -40,10 +43,7 @@ public sealed class DatabaseLifecycleTests
         }
         finally
         {
-            if (File.Exists(file))
-            {
-                File.Delete(file);
-            }
+            if (File.Exists(file)) File.Delete(file);
         }
     }
 
@@ -84,10 +84,7 @@ public sealed class DatabaseLifecycleTests
         }
         finally
         {
-            if (File.Exists(file))
-            {
-                File.Delete(file);
-            }
+            if (File.Exists(file)) File.Delete(file);
         }
     }
 
@@ -95,17 +92,13 @@ public sealed class DatabaseLifecycleTests
     public async Task PostgreSql_explicit_migration_leaves_database_current()
     {
         var connectionString = Environment.GetEnvironmentVariable("DEVORCHESTRATOR_POSTGRES_TEST");
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            return;
-        }
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
 
         var options = new DbContextOptionsBuilder<OrchestratorDbContext>()
             .UseNpgsql(connectionString)
             .Options;
 
         await using var db = new OrchestratorDbContext(options);
-
         Assert.True(await db.Database.CanConnectAsync());
         Assert.Contains(DatabaseInitializer.InitialMigrationId, await db.Database.GetAppliedMigrationsAsync());
         Assert.Empty(await db.Database.GetPendingMigrationsAsync());
@@ -120,7 +113,6 @@ public sealed class DatabaseLifecycleTests
                 ["ConnectionStrings:Orchestrator"] = connectionString
             })
             .Build();
-
         var services = new ServiceCollection();
         services.AddInfrastructure(configuration);
         return services.BuildServiceProvider();
