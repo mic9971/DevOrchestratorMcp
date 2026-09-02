@@ -29,11 +29,12 @@ public static class DatabaseInitializer
                     "DeliveryId" character varying(120) NOT NULL,
                     "EventName" character varying(80) NOT NULL,
                     "ReceivedAtUtc" timestamp with time zone NOT NULL,
+                    "LeaseExpiresAtUtc" timestamp with time zone NOT NULL,
                     "CompletedAtUtc" timestamp with time zone NULL,
                     CONSTRAINT "PK_github_webhook_deliveries" PRIMARY KEY ("DeliveryId")
                 );
-                CREATE INDEX IF NOT EXISTS "IX_github_webhook_deliveries_ReceivedAtUtc"
-                    ON github_webhook_deliveries ("ReceivedAtUtc");
+                CREATE INDEX IF NOT EXISTS "IX_github_webhook_deliveries_CompletedAtUtc_LeaseExpiresAtUtc"
+                    ON github_webhook_deliveries ("CompletedAtUtc", "LeaseExpiresAtUtc");
                 """,
                 cancellationToken);
             return;
@@ -45,10 +46,11 @@ public static class DatabaseInitializer
                 DeliveryId TEXT NOT NULL CONSTRAINT PK_github_webhook_deliveries PRIMARY KEY,
                 EventName TEXT NOT NULL,
                 ReceivedAtUtc TEXT NOT NULL,
+                LeaseExpiresAtUtc TEXT NOT NULL,
                 CompletedAtUtc TEXT NULL
             );
-            CREATE INDEX IF NOT EXISTS IX_github_webhook_deliveries_ReceivedAtUtc
-                ON github_webhook_deliveries (ReceivedAtUtc);
+            CREATE INDEX IF NOT EXISTS IX_github_webhook_deliveries_CompletedAtUtc_LeaseExpiresAtUtc
+                ON github_webhook_deliveries (CompletedAtUtc, LeaseExpiresAtUtc);
             """,
             cancellationToken);
     }
