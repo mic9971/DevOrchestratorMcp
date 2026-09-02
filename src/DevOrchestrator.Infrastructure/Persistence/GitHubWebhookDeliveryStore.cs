@@ -33,7 +33,15 @@ internal sealed class GitHubWebhookDeliveryStore(OrchestratorDbContext dbContext
         catch (DbUpdateException)
         {
             dbContext.Entry(delivery).State = EntityState.Detached;
-            return false;
+
+            if (await dbContext.GitHubWebhookDeliveries
+                    .AsNoTracking()
+                    .AnyAsync(x => x.DeliveryId == deliveryId, cancellationToken))
+            {
+                return false;
+            }
+
+            throw;
         }
     }
 
