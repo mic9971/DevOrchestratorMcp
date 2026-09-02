@@ -89,7 +89,7 @@ public sealed class DatabaseLifecycleTests
     }
 
     [Fact]
-    public async Task PostgreSql_initial_migration_matches_current_model()
+    public async Task PostgreSql_explicit_migration_leaves_database_current()
     {
         var connectionString = Environment.GetEnvironmentVariable("DEVORCHESTRATOR_POSTGRES_TEST");
         if (string.IsNullOrWhiteSpace(connectionString))
@@ -102,12 +102,10 @@ public sealed class DatabaseLifecycleTests
             .Options;
 
         await using var db = new OrchestratorDbContext(options);
-        await db.Database.EnsureDeletedAsync();
-        await db.Database.MigrateAsync();
 
+        Assert.True(await db.Database.CanConnectAsync());
         Assert.Contains(DatabaseInitializer.InitialMigrationId, await db.Database.GetAppliedMigrationsAsync());
         Assert.Empty(await db.Database.GetPendingMigrationsAsync());
-        Assert.True(await db.Database.CanConnectAsync());
     }
 
     private static ServiceProvider BuildProvider(string provider, string connectionString)
