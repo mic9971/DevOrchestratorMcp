@@ -207,6 +207,22 @@ public sealed class DevelopmentTask
         Touch(now);
     }
 
+    public void ExpireLease(string actor, string reason, DateTimeOffset now)
+    {
+        EnsureStatus(DevelopmentTaskStatus.InProgress);
+        actor = Guard.NotBlank(actor, nameof(actor), 120);
+        reason = Guard.NotBlank(reason, nameof(reason), 1000);
+
+        if (!LeaseExpiresAtUtc.HasValue)
+        {
+            throw new InvalidOperationException($"Task {Code} has no active lease to expire.");
+        }
+
+        LeaseExpiresAtUtc = now;
+        Touch(now);
+        AddEvent("task.lease_expired_manually", actor, JsonSerializer.Serialize(new { reason, previousOwner = LeaseOwner }), now);
+    }
+
     public bool IsClaimable(DateTimeOffset now)
         => Status is DevelopmentTaskStatus.Ready or DevelopmentTaskStatus.ChangesRequested
            || (Status == DevelopmentTaskStatus.InProgress
