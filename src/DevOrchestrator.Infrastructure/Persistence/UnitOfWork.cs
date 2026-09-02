@@ -27,8 +27,9 @@ internal sealed class UnitOfWork(OrchestratorDbContext dbContext) : IUnitOfWork
                     ex);
             }
 
+            var entityTypes = string.Join(",", ex.Entries.Select(x => x.Entity.GetType().Name));
             throw new ConcurrencyConflictException(
-                "The task was changed by another actor. Reload the latest task state and retry.",
+                $"The task mutation hit a concurrency conflict in related entities: {entityTypes}. Reload the latest task state and retry.",
                 ex);
         }
     }
