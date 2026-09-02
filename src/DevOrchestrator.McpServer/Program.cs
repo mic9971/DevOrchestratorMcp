@@ -4,6 +4,7 @@ using DevOrchestrator.Infrastructure.Persistence;
 using DevOrchestrator.McpServer.Security;
 using DevOrchestrator.McpServer.Webhooks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.AspNetCore;
 using ModelContextProtocol.Server;
 
@@ -12,7 +13,11 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddHttpContextAccessor();
-builder.Services.Configure<SecurityOptions>(builder.Configuration.GetSection("Security"));
+builder.Services
+    .AddOptions<SecurityOptions>()
+    .Bind(builder.Configuration.GetSection("Security"))
+    .ValidateOnStart();
+builder.Services.AddSingleton<IValidateOptions<SecurityOptions>, SecurityOptionsValidator>();
 builder.Services.Configure<GitHubWebhookOptions>(builder.Configuration.GetSection("GitHub"));
 builder.Services.AddScoped<ToolAuthorizer>();
 builder.Services.AddSingleton<GitHubWebhookSignatureVerifier>();
