@@ -6,6 +6,8 @@ using DevOrchestrator.McpServer.Webhooks;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol.AspNetCore;
 using ModelContextProtocol.Server;
+using OpenTelemetry.Resources;
+using OpenTelemetry.Trace;
 
 var migrateOnly = args.Any(x => string.Equals(x, "migrate", StringComparison.OrdinalIgnoreCase));
 var hostArgs = args.Where(x => !string.Equals(x, "migrate", StringComparison.OrdinalIgnoreCase)).ToArray();
@@ -31,6 +33,25 @@ builder.Services.AddSingleton<IValidateOptions<SecurityOptions>, SecurityOptions
 builder.Services.Configure<GitHubWebhookOptions>(builder.Configuration.GetSection("GitHub"));
 builder.Services.AddScoped<ToolAuthorizer>();
 builder.Services.AddSingleton<GitHubWebhookSignatureVerifier>();
+
+builder.Services
+    .AddOpenTelemetry()
+    .ConfigureResource(resource => resource.AddService("DevOrchestratorMcp"))
+    .WithTracing(tracing =>
+    {
+        tracing
+            .AddAspNetCoreInstrumentation(options =>
+            {
+                options.Filter = context =>
+                    !context.Request.Path.StartsWithSegments("/healthz");
+            })
+            .AddHttpClientInstrumentation();
+
+        if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]))
+        {
+            tracing.AddOtlpExporter();
+        }
+    });
 
 builder.Services
     .AddMcpServer()
@@ -69,3 +90,5 @@ app.MapGitHubWebhook();
 app.MapMcp("/mcp");
 
 app.Run();
+
+public partial class Program;
