@@ -140,7 +140,7 @@ public sealed class OrchestratorDbContext(DbContextOptions<OrchestratorDbContext
             entity.HasKey(x => x.DeliveryId);
             entity.Property(x => x.DeliveryId).HasMaxLength(120);
             entity.Property(x => x.EventName).HasMaxLength(80);
-            entity.HasIndex(x => x.ReceivedAtUtc);
+            entity.HasIndex(x => new { x.CompletedAtUtc, x.LeaseExpiresAtUtc });
         });
     }
 }
