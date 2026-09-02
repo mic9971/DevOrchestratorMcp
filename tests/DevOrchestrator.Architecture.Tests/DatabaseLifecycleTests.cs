@@ -3,8 +3,6 @@ using DevOrchestrator.Domain.Projects;
 using DevOrchestrator.Infrastructure;
 using DevOrchestrator.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -19,27 +17,30 @@ public sealed class DatabaseLifecycleTests
         var connectionString = $"Data Source={file}";
         try
         {
-            var options = new DbContextOptionsBuilder<OrchestratorDbContext>()
-                .UseSqlite(connectionString)
-                .Options;
-
-            await using (var legacy = new OrchestratorDbContext(options))
+            await using (var seedProvider = BuildProvider("sqlite", connectionString))
             {
-                var migrator = legacy.GetService<IMigrator>();
-                await migrator.MigrateAsync(DatabaseInitializer.InitialMigrationId);
-                await legacy.Database.ExecuteSqlRawAsync("DELETE FROM __EFMigrationsHistory;");
+                await seedProvider.MigrateDatabaseAsync();
+                await using var seedScope = seedProvider.CreateAsyncScope();
+                var db = seedScope.ServiceProvider.GetRequiredService<OrchestratorDbContext>();
+
+                await db.Database.ExecuteSqlRawAsync("DROP INDEX IF EXISTS IX_tasks_ProjectId_Status_LeaseExpiresAtUtc;");
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE tasks DROP COLUMN LeaseOwner;");
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE tasks DROP COLUMN LeaseExpiresAtUtc;");
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE tasks DROP COLUMN LastHeartbeatAtUtc;");
+                await db.Database.ExecuteSqlRawAsync("DROP TABLE IF EXISTS github_webhook_inbox;");
+                await db.Database.ExecuteSqlRawAsync("DELETE FROM __EFMigrationsHistory;");
             }
 
             await using var provider = BuildProvider("sqlite", connectionString);
             await provider.MigrateDatabaseAsync();
 
             await using var scope = provider.CreateAsyncScope();
-            var db = scope.ServiceProvider.GetRequiredService<OrchestratorDbContext>();
-            var applied = await db.Database.GetAppliedMigrationsAsync();
+            var current = scope.ServiceProvider.GetRequiredService<OrchestratorDbContext>();
+            var applied = await current.Database.GetAppliedMigrationsAsync();
             Assert.Contains(DatabaseInitializer.InitialMigrationId, applied);
             Assert.Contains("202609020002_TaskWorkerLeases", applied);
             Assert.Contains("202609020003_DurableWebhookInbox", applied);
-            Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+            Assert.Empty(await current.Database.GetPendingMigrationsAsync());
         }
         finally
         {
