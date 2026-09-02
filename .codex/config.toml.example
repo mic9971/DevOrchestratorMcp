@@ -8,6 +8,8 @@ default_tools_approval_mode = "writes"
 
 enabled_tools = [
   "project_get",
+  "bridge_import_plan_issue",
+  "bridge_sync_reviews",
   "task_get",
   "task_get_next",
   "task_start",
