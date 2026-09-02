@@ -3,7 +3,10 @@ using System.Text;
 using DevOrchestrator.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace DevOrchestrator.Architecture.Tests;
 
@@ -60,13 +63,19 @@ public sealed class HttpEndpointIntegrationTests
                 configuration.AddInMemoryCollection(new Dictionary<string, string?>
                 {
                     ["Database:Provider"] = "sqlite",
-                    ["ConnectionStrings:Orchestrator"] = $"Data Source={databasePath}",
                     ["Security:RequireAuthentication"] = "true",
                     ["Security:ArchitectKey"] = "architect-key-at-least-24-characters",
                     ["Security:ImplementerKey"] = "implementer-key-at-least-24-characters",
                     ["Security:AuditorKey"] = "auditor-key-at-least-24-characters",
                     ["GitHub:WebhookSecret"] = "integration-webhook-secret-at-least-24"
                 });
+            });
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<DbContextOptions<OrchestratorDbContext>>();
+                services.RemoveAll<OrchestratorDbContext>();
+                services.AddDbContext<OrchestratorDbContext>(options =>
+                    options.UseSqlite($"Data Source={databasePath}"));
             });
         }
     }
