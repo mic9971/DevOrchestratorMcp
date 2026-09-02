@@ -39,8 +39,8 @@ public static class IdentityAuthentication
             })
             .AddOAuth(GitHubScheme, options =>
             {
-                options.ClientId = configured.GitHub.ClientId ?? "disabled";
-                options.ClientSecret = configured.GitHub.ClientSecret ?? "disabled";
+                options.ClientId = string.IsNullOrWhiteSpace(configured.GitHub.ClientId) ? "disabled-client" : configured.GitHub.ClientId;
+                options.ClientSecret = string.IsNullOrWhiteSpace(configured.GitHub.ClientSecret) ? "disabled-secret" : configured.GitHub.ClientSecret;
                 options.CallbackPath = "/signin-github";
                 options.AuthorizationEndpoint = "https://github.com/login/oauth/authorize";
                 options.TokenEndpoint = "https://github.com/login/oauth/access_token";
