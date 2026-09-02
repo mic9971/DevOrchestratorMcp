@@ -15,7 +15,7 @@ services:
       GitHub__Token: "${GITHUB_TOKEN:-}"
       GitHub__AppId: "${GITHUB_APP_ID:-}"
       GitHub__InstallationId: "${GITHUB_INSTALLATION_ID:-}"
-      GitHub__PrivateKey: "${GITHUB_APP_PRIVATE_KEY:-}"
+      GitHub__PrivateKeyPem: "${GITHUB_APP_PRIVATE_KEY_PEM:-}"
       GitHub__WebhookSecret: "${GITHUB_WEBHOOK_SECRET:?set GITHUB_WEBHOOK_SECRET}"
       AllowedHosts: "${DEVORCHESTRATOR_ALLOWED_HOSTS:?set DEVORCHESTRATOR_ALLOWED_HOSTS}"
       OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
