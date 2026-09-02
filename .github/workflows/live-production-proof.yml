@@ -1,0 +1,58 @@
+name: live-production-proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Public DevOrchestrator base URL, for example https://orchestrator.example.com
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Health and readiness
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+        run: |
+          curl --fail --show-error --silent "$BASE_URL/healthz"
+          curl --fail --show-error --silent "$BASE_URL/readyz"
+
+      - name: Auditor-only operational surface
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          AUDITOR_KEY: ${{ secrets.DEVORCHESTRATOR_AUDITOR_KEY }}
+        run: |
+          test -n "$AUDITOR_KEY"
+          code="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/metrics")"
+          test "$code" = "401"
+          curl --fail --show-error --silent \
+            -H "X-DevOrchestrator-Key: $AUDITOR_KEY" \
+            "$BASE_URL/ops/status"
+          curl --fail --show-error --silent \
+            -H "X-DevOrchestrator-Key: $AUDITOR_KEY" \
+            "$BASE_URL/metrics" | grep -q '^devorchestrator_active_workers '
+
+      - name: Signed GitHub webhook ping
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
+        run: |
+          test -n "$WEBHOOK_SECRET"
+          payload='{"zen":"phase6-production-proof"}'
+          signature="$(PAYLOAD="$payload" python3 - <<'PY'
+          import hashlib, hmac, os
+          print('sha256=' + hmac.new(os.environ['WEBHOOK_SECRET'].encode(), os.environ['PAYLOAD'].encode(), hashlib.sha256).hexdigest())
+          PY
+          )"
+          curl --fail --show-error --silent \
+            -X POST "$BASE_URL/webhooks/github" \
+            -H "Content-Type: application/json" \
+            -H "X-GitHub-Event: ping" \
+            -H "X-GitHub-Delivery: phase6-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            -H "X-Hub-Signature-256: $signature" \
+            --data "$payload"
