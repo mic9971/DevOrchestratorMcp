@@ -10,24 +10,13 @@ public sealed class GitHubWebhookProcessorTests
     [Fact]
     public async Task Issues_event_imports_registered_project_plan()
     {
-        var projects = new StubProjectService(
-            new ProjectDto(
-                "novel-platform",
-                "NovelPlatformArchitecture",
-                "https://github.com/mic9971/NovelPlatformArchitecture.git",
-                "main",
-                true));
+        var projects = CreateProjects();
         var bridge = new StubBridgeService();
         var deliveries = new InMemoryDeliveryStore();
         var processor = new GitHubWebhookProcessor(projects, bridge, deliveries);
 
         var result = await processor.ProcessAsync(
-            new GitHubWebhookNotification(
-                "delivery-1",
-                "issues",
-                "edited",
-                "https://github.com/mic9971/NovelPlatformArchitecture",
-                144),
+            Notification("delivery-1", "issues", "edited"),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
@@ -40,22 +29,11 @@ public sealed class GitHubWebhookProcessorTests
     [Fact]
     public async Task Duplicate_delivery_does_not_replay_bridge_operation()
     {
-        var projects = new StubProjectService(
-            new ProjectDto(
-                "novel-platform",
-                "NovelPlatformArchitecture",
-                "https://github.com/mic9971/NovelPlatformArchitecture",
-                "main",
-                true));
+        var projects = CreateProjects();
         var bridge = new StubBridgeService();
         var deliveries = new InMemoryDeliveryStore();
         var processor = new GitHubWebhookProcessor(projects, bridge, deliveries);
-        var notification = new GitHubWebhookNotification(
-            "delivery-2",
-            "issues",
-            "opened",
-            "https://github.com/mic9971/NovelPlatformArchitecture",
-            144);
+        var notification = Notification("delivery-2", "issues", "opened");
 
         var first = await processor.ProcessAsync(notification, CancellationToken.None);
         var second = await processor.ProcessAsync(notification, CancellationToken.None);
@@ -69,30 +47,78 @@ public sealed class GitHubWebhookProcessorTests
     [Fact]
     public async Task Issue_comment_event_synchronizes_reviews()
     {
-        var projects = new StubProjectService(
-            new ProjectDto(
-                "novel-platform",
-                "NovelPlatformArchitecture",
-                "https://github.com/mic9971/NovelPlatformArchitecture",
-                "main",
-                true));
+        var projects = CreateProjects();
         var bridge = new StubBridgeService();
         var deliveries = new InMemoryDeliveryStore();
         var processor = new GitHubWebhookProcessor(projects, bridge, deliveries);
 
         var result = await processor.ProcessAsync(
-            new GitHubWebhookNotification(
-                "delivery-3",
-                "issue_comment",
-                "created",
-                "https://github.com/mic9971/NovelPlatformArchitecture",
-                144),
+            Notification("delivery-3", "issue_comment", "created"),
             CancellationToken.None);
 
         Assert.True(result.IsSuccess);
         Assert.Equal(0, bridge.ImportCalls);
         Assert.Equal(1, bridge.SyncCalls);
     }
+
+    [Fact]
+    public async Task Ordinary_issue_without_plan_contract_is_accepted_and_not_retried()
+    {
+        var projects = CreateProjects();
+        var bridge = new StubBridgeService(
+            new Error("bridge.contract.not_found", "No devorchestrator-plan contract found."));
+        var deliveries = new InMemoryDeliveryStore();
+        var processor = new GitHubWebhookProcessor(projects, bridge, deliveries);
+        var notification = Notification("delivery-ordinary", "issues", "opened");
+
+        var first = await processor.ProcessAsync(notification, CancellationToken.None);
+        var second = await processor.ProcessAsync(notification, CancellationToken.None);
+
+        Assert.True(first.IsSuccess);
+        Assert.Equal("ignored", first.Value!.Outcome);
+        Assert.Contains("bridge.contract.not_found", first.Value.Detail, StringComparison.Ordinal);
+        Assert.True(second.IsSuccess);
+        Assert.Equal("duplicate", second.Value!.Outcome);
+        Assert.Equal(1, bridge.ImportCalls);
+    }
+
+    [Fact]
+    public async Task Transient_bridge_failure_abandons_delivery_for_retry()
+    {
+        var projects = CreateProjects();
+        var bridge = new StubBridgeService(
+            new Error("bridge.github.unavailable", "GitHub is temporarily unavailable."));
+        var deliveries = new InMemoryDeliveryStore();
+        var processor = new GitHubWebhookProcessor(projects, bridge, deliveries);
+        var notification = Notification("delivery-retry", "issues", "edited");
+
+        var first = await processor.ProcessAsync(notification, CancellationToken.None);
+        var second = await processor.ProcessAsync(notification, CancellationToken.None);
+
+        Assert.True(first.IsFailure);
+        Assert.True(second.IsFailure);
+        Assert.Equal(2, bridge.ImportCalls);
+    }
+
+    private static GitHubWebhookNotification Notification(
+        string deliveryId,
+        string eventName,
+        string action)
+        => new(
+            deliveryId,
+            eventName,
+            action,
+            "https://github.com/mic9971/NovelPlatformArchitecture",
+            144);
+
+    private static StubProjectService CreateProjects()
+        => new(
+            new ProjectDto(
+                "novel-platform",
+                "NovelPlatformArchitecture",
+                "https://github.com/mic9971/NovelPlatformArchitecture.git",
+                "main",
+                true));
 
     private sealed class StubProjectService(ProjectDto project) : IProjectService
     {
@@ -115,7 +141,7 @@ public sealed class GitHubWebhookProcessorTests
             => Task.FromResult(Result<IReadOnlyList<ProjectDto>>.Success([project]));
     }
 
-    private sealed class StubBridgeService : IGitHubBridgeService
+    private sealed class StubBridgeService(Error? importError = null) : IGitHubBridgeService
     {
         public int ImportCalls { get; private set; }
 
@@ -127,6 +153,11 @@ public sealed class GitHubWebhookProcessorTests
             CancellationToken cancellationToken)
         {
             ImportCalls++;
+            if (importError is not null)
+            {
+                return Task.FromResult(Result<GitHubBridgeImportResult>.Failure(importError));
+            }
+
             return Task.FromResult(
                 Result<GitHubBridgeImportResult>.Success(
                     new GitHubBridgeImportResult(
