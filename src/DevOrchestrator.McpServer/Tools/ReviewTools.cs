@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using DevOrchestrator.Application.Contracts;
 using DevOrchestrator.Application.Services;
+using DevOrchestrator.McpServer.Security;
 using ModelContextProtocol.Server;
 
 namespace DevOrchestrator.McpServer.Tools;
@@ -25,8 +26,12 @@ public static class ReviewTools
         [Description("Reviewer actor, for example chatgpt-auditor.")] string actor,
         [Description("When true, a Pass transitions the task directly to Done and unlocks dependents.")] bool completeOnPass,
         IReviewService service,
+        ToolAuthorizer authorizer,
         CancellationToken cancellationToken)
-        => ToolResponse<TaskDto>.From(
+    {
+        authorizer.Require(McpCallerRole.Auditor);
+
+        return ToolResponse<TaskDto>.From(
             await service.SubmitAsync(
                 projectKey,
                 taskCode,
@@ -36,4 +41,5 @@ public static class ReviewTools
                 actor,
                 completeOnPass,
                 cancellationToken));
+    }
 }
