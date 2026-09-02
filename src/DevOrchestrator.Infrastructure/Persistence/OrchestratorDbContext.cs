@@ -50,7 +50,7 @@ public sealed class OrchestratorDbContext(DbContextOptions<OrchestratorDbContext
             entity.Property(x => x.LastCommitSha).HasMaxLength(120);
             entity.Property(x => x.PullRequestUrl).HasMaxLength(1000);
             entity.Property(x => x.BlockReason).HasMaxLength(2000);
-            entity.Property(x => x.UpdatedAtUtc).IsConcurrencyToken();
+            entity.Property<long>("Revision").IsConcurrencyToken();
 
             entity.HasMany(x => x.AcceptanceCriteria)
                 .WithOne()
