@@ -1,4 +1,5 @@
 using DevOrchestrator.Application.Abstractions;
+using DevOrchestrator.Infrastructure.GitHub;
 using DevOrchestrator.Infrastructure.Persistence;
 using DevOrchestrator.Infrastructure.Repositories;
 using Microsoft.EntityFrameworkCore;
@@ -23,6 +24,9 @@ public static class DependencyInjection
         services.AddScoped<ITargetProjectRepository, TargetProjectRepository>();
         services.AddScoped<IDevelopmentTaskRepository, DevelopmentTaskRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+
+        services.AddSingleton<HttpClient>();
+        services.AddSingleton<IGitHubBridgeClient, GitHubBridgeClient>();
 
         return services;
     }
