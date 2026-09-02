@@ -46,10 +46,12 @@ Rules:
 - Plan `projectKey` must match the registered target project.
 - Import is idempotent by normalized task code.
 - A review comment must use schema `devorchestrator.review.v1`.
+- Phase 2 accepts a review only when the comment author matches the Plan Issue author.
 - Review sync only applies to tasks currently `ReadyForReview`.
-- A review older than the current task submission must never apply.
+- A review older than the current task submission must never apply; comparisons must account for GitHub's one-second timestamp precision.
 - Ordinary GitHub comments must not be treated as invalid reviews.
 - Codex must not receive direct `review_submit` permission.
+- For strict separation of duties, Codex must not receive GitHub Issue comment write credentials.
 
 ## Task-state invariants
 
