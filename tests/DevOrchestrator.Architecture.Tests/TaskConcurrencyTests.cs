@@ -2,7 +2,6 @@ using DevOrchestrator.Application.Abstractions;
 using DevOrchestrator.Domain.Tasks;
 using DevOrchestrator.Infrastructure;
 using DevOrchestrator.Infrastructure.Persistence;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -23,8 +22,9 @@ public sealed class TaskConcurrencyTests
             await provider.InitializeDatabaseAsync();
 
             var now = DateTimeOffset.UtcNow;
+            var projectId = Guid.NewGuid();
             var task = DevelopmentTask.Create(
-                Guid.NewGuid(),
+                projectId,
                 "CONC-001",
                 "Concurrency claim",
                 "Prove one task cannot be claimed by two implementers.",
@@ -44,13 +44,17 @@ public sealed class TaskConcurrencyTests
 
             await using var firstScope = provider.CreateAsyncScope();
             await using var secondScope = provider.CreateAsyncScope();
-            var firstDb = firstScope.ServiceProvider.GetRequiredService<OrchestratorDbContext>();
-            var secondDb = secondScope.ServiceProvider.GetRequiredService<OrchestratorDbContext>();
+            var firstRepository = firstScope.ServiceProvider.GetRequiredService<IDevelopmentTaskRepository>();
+            var secondRepository = secondScope.ServiceProvider.GetRequiredService<IDevelopmentTaskRepository>();
             var firstUnitOfWork = firstScope.ServiceProvider.GetRequiredService<IUnitOfWork>();
             var secondUnitOfWork = secondScope.ServiceProvider.GetRequiredService<IUnitOfWork>();
 
-            var first = await firstDb.DevelopmentTasks.SingleAsync(x => x.Code == "CONC-001");
-            var second = await secondDb.DevelopmentTasks.SingleAsync(x => x.Code == "CONC-001");
+            var first = await firstRepository.GetByCodeAsync(projectId, "CONC-001", CancellationToken.None);
+            var second = await secondRepository.GetByCodeAsync(projectId, "CONC-001", CancellationToken.None);
+
+            Assert.NotNull(first);
+            Assert.NotNull(second);
+            Assert.Equal(first!.Revision, second!.Revision);
 
             first.Start("codex-a", "codex/conc-a", now.AddSeconds(2));
             second.Start("codex-b", "codex/conc-b", now.AddSeconds(3));
