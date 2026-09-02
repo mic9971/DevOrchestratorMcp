@@ -13,7 +13,7 @@ internal sealed class GitHubWebhookDeliveryStore(OrchestratorDbContext dbContext
         string eventName,
         CancellationToken cancellationToken)
     {
-        var now = DateTimeOffset.UtcNow;
+        var now = DateTime.UtcNow;
         var leaseExpiresAtUtc = now.Add(ProcessingLease);
         var existing = await dbContext.GitHubWebhookDeliveries
             .AsNoTracking()
@@ -80,7 +80,7 @@ internal sealed class GitHubWebhookDeliveryStore(OrchestratorDbContext dbContext
             return;
         }
 
-        delivery.Complete(DateTimeOffset.UtcNow);
+        delivery.Complete(DateTime.UtcNow);
         await dbContext.SaveChangesAsync(cancellationToken);
     }
 
@@ -103,10 +103,10 @@ internal sealed class GitHubWebhookDeliveryStore(OrchestratorDbContext dbContext
     private async Task<bool> TryReclaimExpiredLeaseAsync(
         string deliveryId,
         string eventName,
-        DateTimeOffset now,
-        DateTimeOffset leaseExpiresAtUtc,
-        DateTimeOffset? completedAtUtc,
-        DateTimeOffset currentLeaseExpiresAtUtc,
+        DateTime now,
+        DateTime leaseExpiresAtUtc,
+        DateTime? completedAtUtc,
+        DateTime currentLeaseExpiresAtUtc,
         CancellationToken cancellationToken)
     {
         if (completedAtUtc is not null || currentLeaseExpiresAtUtc > now)
