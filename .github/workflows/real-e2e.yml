@@ -2,6 +2,11 @@ name: real-github-e2e
 
 on:
   workflow_dispatch:
+    inputs:
+      repository_url:
+        description: Optional target repository URL; empty uses this repository
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -11,9 +16,9 @@ jobs:
   real-github-contract:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
 
@@ -25,8 +30,8 @@ jobs:
 
       - name: Run real GitHub contract E2E
         env:
-          DEVORCHESTRATOR_REAL_GITHUB_E2E_REPOSITORY_URL: https://github.com/${{ github.repository }}
-          DEVORCHESTRATOR_REAL_GITHUB_E2E_TOKEN: ${{ github.token }}
+          DEVORCHESTRATOR_REAL_GITHUB_E2E_REPOSITORY_URL: ${{ inputs.repository_url || format('https://github.com/{0}', github.repository) }}
+          DEVORCHESTRATOR_REAL_GITHUB_E2E_TOKEN: ${{ secrets.DEVORCHESTRATOR_REAL_GITHUB_E2E_TOKEN || github.token }}
           GITHUB_SHA: ${{ github.sha }}
         run: >-
           dotnet test tests/DevOrchestrator.Architecture.Tests/DevOrchestrator.Architecture.Tests.csproj
