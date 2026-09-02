@@ -6,22 +6,36 @@ namespace DevOrchestrator.Infrastructure.Persistence;
 internal sealed class GitHubWebhookDeliveryStore(OrchestratorDbContext dbContext)
     : IGitHubWebhookDeliveryStore
 {
+    private static readonly TimeSpan ProcessingLease = TimeSpan.FromMinutes(5);
+
     public async Task<bool> TryBeginAsync(
         string deliveryId,
         string eventName,
         CancellationToken cancellationToken)
     {
-        if (await dbContext.GitHubWebhookDeliveries
-                .AsNoTracking()
-                .AnyAsync(x => x.DeliveryId == deliveryId, cancellationToken))
+        var now = DateTimeOffset.UtcNow;
+        var leaseExpiresAtUtc = now.Add(ProcessingLease);
+        var existing = await dbContext.GitHubWebhookDeliveries
+            .AsNoTracking()
+            .SingleOrDefaultAsync(x => x.DeliveryId == deliveryId, cancellationToken);
+
+        if (existing is not null)
         {
-            return false;
+            return await TryReclaimExpiredLeaseAsync(
+                deliveryId,
+                eventName,
+                now,
+                leaseExpiresAtUtc,
+                existing.CompletedAtUtc,
+                existing.LeaseExpiresAtUtc,
+                cancellationToken);
         }
 
         var delivery = new GitHubWebhookDelivery(
             deliveryId,
             eventName,
-            DateTimeOffset.UtcNow);
+            now,
+            leaseExpiresAtUtc);
 
         dbContext.GitHubWebhookDeliveries.Add(delivery);
 
@@ -34,14 +48,23 @@ internal sealed class GitHubWebhookDeliveryStore(OrchestratorDbContext dbContext
         {
             dbContext.Entry(delivery).State = EntityState.Detached;
 
-            if (await dbContext.GitHubWebhookDeliveries
-                    .AsNoTracking()
-                    .AnyAsync(x => x.DeliveryId == deliveryId, cancellationToken))
+            var concurrent = await dbContext.GitHubWebhookDeliveries
+                .AsNoTracking()
+                .SingleOrDefaultAsync(x => x.DeliveryId == deliveryId, cancellationToken);
+
+            if (concurrent is null)
             {
-                return false;
+                throw;
             }
 
-            throw;
+            return await TryReclaimExpiredLeaseAsync(
+                deliveryId,
+                eventName,
+                now,
+                leaseExpiresAtUtc,
+                concurrent.CompletedAtUtc,
+                concurrent.LeaseExpiresAtUtc,
+                cancellationToken);
         }
     }
 
@@ -75,5 +98,34 @@ internal sealed class GitHubWebhookDeliveryStore(OrchestratorDbContext dbContext
 
         dbContext.GitHubWebhookDeliveries.Remove(delivery);
         await dbContext.SaveChangesAsync(cancellationToken);
+    }
+
+    private async Task<bool> TryReclaimExpiredLeaseAsync(
+        string deliveryId,
+        string eventName,
+        DateTimeOffset now,
+        DateTimeOffset leaseExpiresAtUtc,
+        DateTimeOffset? completedAtUtc,
+        DateTimeOffset currentLeaseExpiresAtUtc,
+        CancellationToken cancellationToken)
+    {
+        if (completedAtUtc is not null || currentLeaseExpiresAtUtc > now)
+        {
+            return false;
+        }
+
+        var updated = await dbContext.GitHubWebhookDeliveries
+            .Where(x =>
+                x.DeliveryId == deliveryId
+                && x.CompletedAtUtc == null
+                && x.LeaseExpiresAtUtc <= now)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(x => x.EventName, eventName)
+                    .SetProperty(x => x.ReceivedAtUtc, now)
+                    .SetProperty(x => x.LeaseExpiresAtUtc, leaseExpiresAtUtc),
+                cancellationToken);
+
+        return updated == 1;
     }
 }
