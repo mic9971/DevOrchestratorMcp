@@ -170,9 +170,10 @@ internal sealed class GitHubBridgeService(
 
             var contract = parsed.Value!;
             var code = contract.TaskCode.Trim().ToUpperInvariant();
-            if (!taskByCode.TryGetValue(code, out var task) ||
+            if (!string.Equals(comment.Author, issue.Author, StringComparison.OrdinalIgnoreCase) ||
+                !taskByCode.TryGetValue(code, out var task) ||
                 !string.Equals(task.Status, "ReadyForReview", StringComparison.OrdinalIgnoreCase) ||
-                comment.CreatedAtUtc < task.UpdatedAtUtc)
+                comment.CreatedAtUtc < TruncateToSecond(task.UpdatedAtUtc))
             {
                 ignored++;
                 continue;
@@ -224,6 +225,9 @@ internal sealed class GitHubBridgeService(
                 issue.Url,
                 applied));
     }
+
+    private static DateTimeOffset TruncateToSecond(DateTimeOffset value)
+        => value.AddTicks(-(value.Ticks % TimeSpan.TicksPerSecond));
 
     private static Error GitHubFailure(string message)
         => new("bridge.github.unavailable", $"GitHub bridge request failed: {message}");

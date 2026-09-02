@@ -57,9 +57,10 @@ public sealed class GitHubBridgeServiceTests
     }
 
     [Fact]
-    public async Task SyncReviews_applies_latest_review_after_current_submission_and_ignores_old_or_plain_comments()
+    public async Task SyncReviews_trusts_issue_author_ignores_old_or_foreign_comments_and_accepts_same_second_precision()
     {
-        var submittedAt = new DateTimeOffset(2026, 9, 2, 10, 0, 0, TimeSpan.Zero);
+        var submittedAt = new DateTimeOffset(2026, 9, 2, 10, 0, 0, TimeSpan.Zero).AddMilliseconds(750);
+        var githubSecond = new DateTimeOffset(2026, 9, 2, 10, 0, 0, TimeSpan.Zero);
         var tasks = new FakeTaskService([CreateTask("P2-001", "ReadyForReview", submittedAt)]);
         var reviews = new FakeReviewService();
         var github = new FakeGitHubBridgeClient
@@ -72,19 +73,25 @@ public sealed class GitHubBridgeServiceTests
                 submittedAt),
             Comments =
             [
-                new GitHubIssueCommentSnapshot(1, "comment/1", "auditor", "plain discussion", submittedAt.AddMinutes(1)),
+                new GitHubIssueCommentSnapshot(1, "comment/1", "architect", "plain discussion", submittedAt.AddMinutes(1)),
                 new GitHubIssueCommentSnapshot(
                     2,
                     "comment/2",
-                    "auditor",
+                    "architect",
                     ReviewContract("Pass", "Old review"),
-                    submittedAt.AddMinutes(-1)),
+                    submittedAt.AddSeconds(-2)),
                 new GitHubIssueCommentSnapshot(
                     3,
                     "comment/3",
-                    "auditor",
+                    "someone-else",
+                    ReviewContract("Pass", "Untrusted review"),
+                    submittedAt.AddMinutes(2)),
+                new GitHubIssueCommentSnapshot(
+                    4,
+                    "comment/4",
+                    "architect",
                     ReviewContract("ChangesRequested", "Fix one finding"),
-                    submittedAt.AddMinutes(2))
+                    githubSecond)
             ]
         };
 
@@ -98,12 +105,12 @@ public sealed class GitHubBridgeServiceTests
 
         Assert.True(result.IsSuccess);
         Assert.Equal(1, result.Value!.Applied);
-        Assert.Equal(2, result.Value.Ignored);
+        Assert.Equal(3, result.Value.Ignored);
         Assert.Equal(0, result.Value.Invalid);
         Assert.Single(reviews.Calls);
         Assert.Equal("P2-001", reviews.Calls[0].TaskCode);
         Assert.Equal("ChangesRequested", reviews.Calls[0].Decision);
-        Assert.Equal("github:auditor", reviews.Calls[0].Actor);
+        Assert.Equal("github:architect", reviews.Calls[0].Actor);
     }
 
     private static string ReviewContract(string decision, string summary)
