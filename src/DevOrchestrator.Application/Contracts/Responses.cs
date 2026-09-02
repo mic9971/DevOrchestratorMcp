@@ -44,7 +44,10 @@ public sealed record TaskDto(
     IReadOnlyList<EvidenceDto> Evidence,
     IReadOnlyList<ReviewDto> Reviews,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string? LeaseOwner = null,
+    DateTimeOffset? LeaseExpiresAtUtc = null,
+    DateTimeOffset? LastHeartbeatAtUtc = null);
 
 public sealed record BatchCreateResult(
     int Created,

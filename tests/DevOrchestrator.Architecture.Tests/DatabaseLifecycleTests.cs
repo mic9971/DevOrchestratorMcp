@@ -17,30 +17,34 @@ public sealed class DatabaseLifecycleTests
         var connectionString = $"Data Source={file}";
         try
         {
-            var options = new DbContextOptionsBuilder<OrchestratorDbContext>()
-                .UseSqlite(connectionString)
-                .Options;
-
-            await using (var legacy = new OrchestratorDbContext(options))
+            await using (var seedProvider = BuildProvider("sqlite", connectionString))
             {
-                await legacy.Database.EnsureCreatedAsync();
+                await seedProvider.MigrateDatabaseAsync();
+                await using var seedScope = seedProvider.CreateAsyncScope();
+                var db = seedScope.ServiceProvider.GetRequiredService<OrchestratorDbContext>();
+
+                await db.Database.ExecuteSqlRawAsync("DROP INDEX IF EXISTS IX_tasks_ProjectId_Status_LeaseExpiresAtUtc;");
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE tasks DROP COLUMN LeaseOwner;");
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE tasks DROP COLUMN LeaseExpiresAtUtc;");
+                await db.Database.ExecuteSqlRawAsync("ALTER TABLE tasks DROP COLUMN LastHeartbeatAtUtc;");
+                await db.Database.ExecuteSqlRawAsync("DROP TABLE IF EXISTS github_webhook_inbox;");
+                await db.Database.ExecuteSqlRawAsync("DELETE FROM __EFMigrationsHistory;");
             }
 
             await using var provider = BuildProvider("sqlite", connectionString);
             await provider.MigrateDatabaseAsync();
 
             await using var scope = provider.CreateAsyncScope();
-            var db = scope.ServiceProvider.GetRequiredService<OrchestratorDbContext>();
-            var applied = await db.Database.GetAppliedMigrationsAsync();
+            var current = scope.ServiceProvider.GetRequiredService<OrchestratorDbContext>();
+            var applied = await current.Database.GetAppliedMigrationsAsync();
             Assert.Contains(DatabaseInitializer.InitialMigrationId, applied);
-            Assert.Empty(await db.Database.GetPendingMigrationsAsync());
+            Assert.Contains("202609020002_TaskWorkerLeases", applied);
+            Assert.Contains("202609020003_DurableWebhookInbox", applied);
+            Assert.Empty(await current.Database.GetPendingMigrationsAsync());
         }
         finally
         {
-            if (File.Exists(file))
-            {
-                File.Delete(file);
-            }
+            if (File.Exists(file)) File.Delete(file);
         }
     }
 
@@ -81,10 +85,7 @@ public sealed class DatabaseLifecycleTests
         }
         finally
         {
-            if (File.Exists(file))
-            {
-                File.Delete(file);
-            }
+            if (File.Exists(file)) File.Delete(file);
         }
     }
 
@@ -92,17 +93,13 @@ public sealed class DatabaseLifecycleTests
     public async Task PostgreSql_explicit_migration_leaves_database_current()
     {
         var connectionString = Environment.GetEnvironmentVariable("DEVORCHESTRATOR_POSTGRES_TEST");
-        if (string.IsNullOrWhiteSpace(connectionString))
-        {
-            return;
-        }
+        if (string.IsNullOrWhiteSpace(connectionString)) return;
 
         var options = new DbContextOptionsBuilder<OrchestratorDbContext>()
             .UseNpgsql(connectionString)
             .Options;
 
         await using var db = new OrchestratorDbContext(options);
-
         Assert.True(await db.Database.CanConnectAsync());
         Assert.Contains(DatabaseInitializer.InitialMigrationId, await db.Database.GetAppliedMigrationsAsync());
         Assert.Empty(await db.Database.GetPendingMigrationsAsync());
@@ -117,7 +114,6 @@ public sealed class DatabaseLifecycleTests
                 ["ConnectionStrings:Orchestrator"] = connectionString
             })
             .Build();
-
         var services = new ServiceCollection();
         services.AddInfrastructure(configuration);
         return services.BuildServiceProvider();

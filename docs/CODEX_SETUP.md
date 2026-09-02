@@ -6,59 +6,90 @@ Run the MCP server locally on a fixed port:
 ASPNETCORE_URLS=http://127.0.0.1:5058 dotnet run --project src/DevOrchestrator.McpServer
 ```
 
-MCP URL:
+MCP URL: `http://127.0.0.1:5058/mcp`.
 
-```text
-http://127.0.0.1:5058/mcp
-```
+## Codex configuration
 
-## Codex IDE / desktop setup
-
-In MCP server settings:
-
-1. Add server.
-2. Choose **Streamable HTTP**.
-3. Name it `dev-orchestrator`.
-4. URL: `http://127.0.0.1:5058/mcp`.
-5. Configure the Implementer bearer token when Phase 3 authentication is enabled.
-6. Restart the extension/app.
-
-## Codex `config.toml`
-
-Use a project-scoped `.codex/config.toml` in the target repository or merge the example into `~/.codex/config.toml`.
-
-Export the implementer key without committing it:
+Copy `.codex/config.toml.example` into the target repository or merge it into the user-level Codex configuration. Export only the Implementer credential:
 
 ```bash
 export DEVORCHESTRATOR_IMPLEMENTER_KEY="<secret>"
 ```
 
-Recommended implementer configuration:
+The Implementer allow-list includes `task_claim_next` and `task_heartbeat` but excludes Architect/Auditor write tools.
 
-```toml
-[mcp_servers.dev_orchestrator]
-url = "http://127.0.0.1:5058/mcp"
-enabled = true
-required = true
-startup_timeout_sec = 20
-tool_timeout_sec = 60
-default_tools_approval_mode = "writes"
-bearer_token_env_var = "DEVORCHESTRATOR_IMPLEMENTER_KEY"
+## Phase 5 multi-worker cycle
 
-enabled_tools = [
-  "project_get",
-  "bridge_import_plan_issue",
-  "bridge_sync_reviews",
-  "task_get",
-  "task_get_next",
-  "task_start",
-  "task_add_evidence",
-  "task_submit_review",
-  "task_block"
-]
+Each Codex process/session should generate or persist a stable worker id such as:
+
+```text
+codex:<hostname>:<process-or-session-id>
 ```
 
-Do **not** add direct architect/auditor tools such as:
+Normal execution:
+
+```text
+1. Read target AGENTS.md.
+2. Call bridge_sync_reviews only when explicit recovery/manual sync is needed.
+3. Call task_claim_next(projectKey, workerId, branch).
+4. Work on exactly the returned task.
+5. Call task_heartbeat with the same workerId while long work is active.
+6. Run required build/tests.
+7. Attach real Git evidence with task_add_evidence.
+8. Call task_submit_review.
+9. Stop for independent audit.
+```
+
+The task lease is 10 minutes. A practical heartbeat interval is about 5 minutes. If a worker disappears, another worker can reclaim the task after lease expiry.
+
+`task_get_next` and `task_start` remain compatibility paths; new multi-worker integrations should prefer `task_claim_next`.
+
+## GitHub webhook cycle
+
+Signed GitHub `issues` and `issue_comment` events are HMAC-verified and durably queued. The HTTP request returns after enqueue; a hosted worker performs plan import/review synchronization and retries transient failures.
+
+The Phase 2 bridge tools remain available as explicit recovery/manual-sync operations.
+
+## GitHub authentication
+
+Preferred production mode is a GitHub App:
+
+```bash
+export GitHub__AppId="<app-id>"
+export GitHub__InstallationId="<installation-id>"
+export GitHub__PrivateKeyPem="$(cat app-private-key.pem)"
+export GitHub__WebhookSecret="<strong-random-secret>"
+```
+
+Compatibility token mode remains available:
+
+```bash
+export GitHub__Token="<token>"
+```
+
+Never commit tokens, app private keys, or webhook secrets.
+
+## Production role keys and rotation
+
+When `Security__RequireAuthentication=true`, configure distinct current keys:
+
+```bash
+export Security__ArchitectKey="<architect-secret>"
+export Security__ImplementerKey="$DEVORCHESTRATOR_IMPLEMENTER_KEY"
+export Security__AuditorKey="<auditor-secret>"
+```
+
+For zero-downtime rotation, temporarily configure the outgoing key as the corresponding `PreviousKey`, deploy the new current key, migrate clients, then remove the previous key.
+
+Codex receives only the Implementer key. ChatGPT/human operator tooling receives Architect/Auditor credentials through its deployment environment.
+
+## Manual real GitHub E2E
+
+The `real-github-e2e` GitHub Actions workflow is manual (`workflow_dispatch`) because it intentionally creates a temporary Issue and review comment in the repository. It closes the Issue after verifying the full plan/review contract reaches `Done`.
+
+## Separation of duties
+
+Do **not** expose these to Codex implementers:
 
 ```text
 task_create
@@ -67,93 +98,4 @@ review_submit
 task_reopen
 ```
 
-to the Codex implementer allow-list.
-
-Phase 3 also enforces role separation on the server, so an Implementer key cannot call Architect/Auditor tools even if a client configuration is accidentally broadened.
-
-## Phase 2 manual bridge cycle
-
-When webhooks are not configured, Codex can still use the Phase 2 cycle:
-
-1. Call `bridge_import_plan_issue`.
-2. Call `bridge_sync_reviews`.
-3. Call `task_get_next`.
-4. Implement the returned task only.
-5. Record real Git evidence and call `task_submit_review`.
-6. Stop for independent audit.
-
-## Phase 3 webhook cycle
-
-When the target GitHub repository sends signed `issues` and `issue_comment` events to `/webhooks/github`:
-
-- plan issue creation/edits automatically import missing tasks;
-- review comment creation/edits automatically synchronize review decisions;
-- `X-GitHub-Delivery` prevents duplicate webhook replay.
-
-Codex therefore normally starts with:
-
-```text
-task_get_next
-```
-
-and only uses the Phase 2 bridge tools as an explicit recovery/manual-sync path.
-
-## GitHub configuration for the MCP server
-
-For private repositories or higher API rate limits:
-
-```bash
-export GitHub__Token="<token>"
-```
-
-For webhook verification:
-
-```bash
-export GitHub__WebhookSecret="<strong-random-secret>"
-```
-
-Configure the same webhook secret in GitHub and subscribe at minimum to:
-
-```text
-Issues
-Issue comments
-```
-
-Webhook URL:
-
-```text
-https://<your-host>/webhooks/github
-```
-
-Do not commit tokens or webhook secrets.
-
-## Production role keys
-
-When `Security__RequireAuthentication=true`, configure three distinct secrets:
-
-```bash
-export Security__ArchitectKey="<architect-secret>"
-export Security__ImplementerKey="$DEVORCHESTRATOR_IMPLEMENTER_KEY"
-export Security__AuditorKey="<auditor-secret>"
-```
-
-Codex receives only the Implementer key. ChatGPT/human operator tooling receives the appropriate Architect or Auditor credential through its deployment environment.
-
-## Suggested Codex startup instruction
-
-Use `prompts/implementer.md` as the stable workflow instruction, while the target repository's `AGENTS.md` remains the source of coding/architecture rules.
-
-## Shared state model
-
-```text
-GitHub Plan Issue + review comments
-             |
-       signed webhooks
-             v
-DevOrchestratorMcp task database
-             |
-             v
-Codex implementation state
-```
-
-GitHub remains the source of truth for code/diff/PR evidence; the MCP database remains the source of truth for task lifecycle state.
+Server-side role enforcement remains the authoritative security boundary; the client tool allow-list is defense in depth.

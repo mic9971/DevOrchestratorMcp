@@ -25,6 +25,7 @@ internal static class OrchestratorModel
             entity.HasKey(x => x.Id);
             entity.HasIndex(x => new { x.ProjectId, x.Code }).IsUnique();
             entity.HasIndex(x => new { x.ProjectId, x.Status, x.Priority });
+            entity.HasIndex(x => new { x.ProjectId, x.Status, x.LeaseExpiresAtUtc });
             entity.Property(x => x.Code).HasMaxLength(80);
             entity.Property(x => x.Title).HasMaxLength(300);
             entity.Property(x => x.Objective).HasMaxLength(5000);
@@ -33,6 +34,7 @@ internal static class OrchestratorModel
             entity.Property(x => x.LastCommitSha).HasMaxLength(120);
             entity.Property(x => x.PullRequestUrl).HasMaxLength(1000);
             entity.Property(x => x.BlockReason).HasMaxLength(2000);
+            entity.Property(x => x.LeaseOwner).HasMaxLength(120);
             entity.Property(x => x.Revision).IsConcurrencyToken();
 
             entity.HasMany(x => x.AcceptanceCriteria).WithOne().HasForeignKey(x => x.TaskId).OnDelete(DeleteBehavior.Cascade);
@@ -100,6 +102,18 @@ internal static class OrchestratorModel
             entity.Property(x => x.DeliveryId).HasMaxLength(120);
             entity.Property(x => x.EventName).HasMaxLength(80);
             entity.HasIndex(x => new { x.CompletedAtUtc, x.LeaseExpiresAtUtc });
+        });
+
+        modelBuilder.Entity<GitHubWebhookInboxItem>(entity =>
+        {
+            entity.ToTable("github_webhook_inbox");
+            entity.HasKey(x => x.DeliveryId);
+            entity.Property(x => x.DeliveryId).HasMaxLength(120);
+            entity.Property(x => x.EventName).HasMaxLength(80);
+            entity.Property(x => x.Action).HasMaxLength(80);
+            entity.Property(x => x.RepositoryUrl).HasMaxLength(500);
+            entity.Property(x => x.LastError).HasMaxLength(4000);
+            entity.HasIndex(x => new { x.CompletedAtUtc, x.NextAttemptAtUtc, x.LeaseExpiresAtUtc });
         });
     }
 }

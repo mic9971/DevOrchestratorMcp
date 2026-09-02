@@ -6,86 +6,58 @@ A reusable .NET MCP control plane for an AI software-development loop:
 
 **ChatGPT Architect → GitHub Plan Issue → MCP task graph → Codex Implementer → Git evidence → ChatGPT Auditor → GitHub review contract → done / changes requested**
 
-The MCP server is deliberately **not** an AI agent. It stores project/task state, enforces task transitions, records implementation evidence, and keeps review history. Git remains the source of truth for code.
+The MCP server is deliberately **not** an AI agent. It stores project/task state, coordinates workers, enforces task transitions, records implementation evidence, and keeps review history. Git remains the source of truth for code.
 
 ## Stack
 
-- .NET 8
-- ASP.NET Core
+- .NET 8 / ASP.NET Core
 - Official `ModelContextProtocol.AspNetCore` C# SDK
 - Streamable HTTP MCP endpoint
 - SQLite for zero-infrastructure local development
-- PostgreSQL provider for shared/production deployment
-- Signed GitHub webhook automation with delivery idempotency
+- PostgreSQL for shared/production deployment
+- Versioned EF Core migrations with an explicit migration process
+- Signed GitHub webhook ingestion with durable database inbox and retry worker
 - Server-side Architect / Implementer / Auditor authorization
-- Clean separation: Common / Domain / Application / Infrastructure / MCP host
-- Domain, application/bridge, security, and architecture tests
+- Multi-worker task lease, heartbeat, expiry, and reclaim
+- OpenTelemetry tracing baseline
+- Domain, application, database, security, HTTP, and architecture tests
 
-## Phase 2 GitHub Bridge
-
-For ChatGPT Web surfaces that cannot invoke write-capable custom MCP tools directly, GitHub is the durable handoff contract:
-
-```text
-ChatGPT Web
-  -> GitHub Plan Issue (`devorchestrator.plan.v1`)
-  -> `bridge_import_plan_issue`
-  -> Codex implementation/evidence
-  -> ChatGPT audit
-  -> GitHub review comment (`devorchestrator.review.v1`)
-  -> `bridge_sync_reviews`
-  -> DONE / CHANGES_REQUESTED
-```
-
-See `docs/PHASE2_GITHUB_BRIDGE.md` and `examples/`.
-
-## Phase 3 Production Orchestration
-
-Phase 3 removes the normal operational need to call the bridge sync tools manually:
+## Orchestration flow
 
 ```text
-GitHub issues / issue_comment webhook
-          |
-          | HMAC-SHA256 + X-GitHub-Delivery
-          v
-POST /webhooks/github
-          |
-          +--> plan import
-          `--> review sync
-
-Codex / ChatGPT MCP client
-          |
-          | role API key
-          v
-        /mcp
-          |
-          +--> Architect tools
-          +--> Implementer tools
-          `--> Auditor tools
+ChatGPT Architect
+      |
+      v
+GitHub Plan Issue (`devorchestrator.plan.v1`)
+      |
+      v
+signed GitHub webhook -> durable inbox -> plan import
+      |
+      v
+READY task
+      |
+      | task_claim_next(workerId)
+      v
+Codex worker -> IN_PROGRESS lease
+      |
+      +--> task_heartbeat
+      +--> Git evidence
+      `--> task_submit_review
+                    |
+                    v
+             ChatGPT Auditor
+                    |
+                    v
+GitHub review contract (`devorchestrator.review.v1`)
+                    |
+                    v
+        durable inbox -> review sync
+             /                 \
+            v                   v
+          DONE         CHANGES_REQUESTED
 ```
 
-Production persistence can use PostgreSQL with `Database__Provider=postgres`. Local development defaults to SQLite.
-
-See `docs/PHASE3_PRODUCTION_ORCHESTRATION.md`.
-
-## Workflow
-
-```text
-DRAFT
-  │ dependencies satisfied
-  ▼
-READY
-  │ task_start
-  ▼
-IN_PROGRESS
-  │ task_add_evidence
-  │ task_submit_review
-  ▼
-READY_FOR_REVIEW
-  ├── review / webhook sync: ChangesRequested ──► CHANGES_REQUESTED ──► task_start
-  └── review / webhook sync: Pass ──────────────► DONE
-```
-
-A passing review automatically promotes dependent `Draft` tasks to `Ready` when all dependencies are `Done`.
+If a worker disappears, its task can be reclaimed after lease expiry. A passing review promotes dependent `Draft` tasks to `Ready` atomically when all dependencies are complete.
 
 ## MCP tools
 
@@ -97,14 +69,18 @@ Architect:
 - `task_create_batch`
 - `task_get`
 - `task_list`
+- `task_list_page`
 
 Implementer / Codex:
 - `project_get`
 - `bridge_import_plan_issue`
 - `bridge_sync_reviews`
 - `task_get`
-- `task_get_next`
-- `task_start`
+- `task_list_page`
+- `task_get_next` (preview/compatibility)
+- `task_claim_next`
+- `task_heartbeat`
+- `task_start` (compatibility)
 - `task_add_evidence`
 - `task_submit_review`
 - `task_block`
@@ -113,11 +89,12 @@ Auditor / privileged:
 - `project_get`
 - `task_get`
 - `task_list`
+- `task_list_page`
 - `review_submit`
 - `task_reopen`
 - `task_resume`
 
-Client-side tool allow-lists remain useful, but Phase 3 also enforces these roles on the server.
+Client-side tool allow-lists are defense in depth; server-side role enforcement is authoritative.
 
 ## Run locally
 
@@ -127,12 +104,8 @@ Prerequisites: .NET 8 SDK.
 dotnet restore
 dotnet build
 dotnet test
-dotnet run --project src/DevOrchestrator.McpServer
-```
 
-For a fixed port:
-
-```bash
+dotnet run --project src/DevOrchestrator.McpServer -- migrate
 ASPNETCORE_URLS=http://127.0.0.1:5058 dotnet run --project src/DevOrchestrator.McpServer
 ```
 
@@ -145,23 +118,21 @@ Readiness: http://127.0.0.1:5058/readyz
 Webhook:   http://127.0.0.1:5058/webhooks/github
 ```
 
-Local `appsettings.json` keeps `Security:RequireAuthentication=false` for backward-compatible POC use.
+`/readyz` returns not-ready when the database has pending migrations. Normal MCP startup never performs DDL.
 
 ## Codex configuration
 
-Copy `.codex/config.toml.example` into the target repository and export an implementer key:
+Copy `.codex/config.toml.example` into the target repository and export only the Implementer key:
 
 ```bash
 export DEVORCHESTRATOR_IMPLEMENTER_KEY="<secret>"
 ```
 
-The example uses `bearer_token_env_var` so Codex authenticates as the Implementer role while still exposing only the implementer tool allow-list.
-
-See `docs/CODEX_SETUP.md`.
+New multi-worker integrations should use `task_claim_next` with a stable worker ID and send `task_heartbeat` periodically. See `docs/CODEX_SETUP.md`.
 
 ## Production configuration
 
-Typical environment variables:
+Database and MCP security:
 
 ```text
 Database__Provider=postgres
@@ -170,38 +141,48 @@ Security__RequireAuthentication=true
 Security__ArchitectKey=...
 Security__ImplementerKey=...
 Security__AuditorKey=...
-GitHub__Token=...
 GitHub__WebhookSecret=...
 ```
 
-Never commit these values.
+Zero-downtime MCP credential rotation can temporarily use:
 
-`compose.yaml` provides PostgreSQL + DevOrchestrator wiring for a production-like local deployment.
+```text
+Security__ArchitectPreviousKey=...
+Security__ImplementerPreviousKey=...
+Security__AuditorPreviousKey=...
+```
 
-## Persistence
+Preferred GitHub production authentication is a GitHub App:
 
-SQLite remains the local default:
+```text
+GitHub__AppId=...
+GitHub__InstallationId=...
+GitHub__PrivateKeyPem=...
+```
+
+`GitHub__Token` / `GITHUB_TOKEN` remains a compatibility fallback.
+
+Never commit credentials. Serve remote MCP/webhook endpoints behind HTTPS.
+
+## Persistence and deployment
+
+SQLite remains the local default at:
 
 ```text
 src/DevOrchestrator.McpServer/data/dev-orchestrator.db
 ```
 
-PostgreSQL is selected with `Database__Provider=postgres`. Webhook delivery IDs are persisted in `github_webhook_deliveries`, so multiple server instances share replay protection.
+PostgreSQL is selected with `Database__Provider=postgres`. `compose.yaml` runs a one-shot `db-migrate` service before MCP startup. CI boots PostgreSQL and executes the real migration path.
 
-Phase 3 retains `EnsureCreated` for compatibility with the current POC schema. Introduce versioned EF Core migrations before future destructive or transforming schema changes.
+GitHub webhook requests are HMAC-verified and durably persisted in `github_webhook_inbox`; a hosted worker leases and retries inbox records. `X-GitHub-Delivery` remains the external idempotency key.
 
-## Security
+Built-in endpoint limits protect the control plane:
+- `/mcp`: 120 requests/minute
+- `/webhooks/github`: 300 requests/minute
 
-For remote deployment:
+## Verification
 
-- serve MCP and webhook endpoints behind HTTPS;
-- set `Security__RequireAuthentication=true`;
-- configure distinct Architect, Implementer, and Auditor keys;
-- set a strong `GitHub__WebhookSecret`;
-- configure exact allowed hosts;
-- do not give Codex the Architect or Auditor key;
-- do not grant Codex GitHub Issue-comment write credentials when strict separation of duties is required;
-- never place GitHub/API tokens in task descriptions, evidence, commits, or PRs.
+Normal PR CI is hermetic. An explicit `real-github-e2e` workflow is available through `workflow_dispatch` to create a temporary Plan Issue, import it, claim/complete the task lifecycle, post a real review contract, sync it, assert `Done`, and close the Issue.
 
 ## Design docs
 
@@ -209,6 +190,8 @@ For remote deployment:
 - `docs/WORKFLOW.md`
 - `docs/PHASE2_GITHUB_BRIDGE.md`
 - `docs/PHASE3_PRODUCTION_ORCHESTRATION.md`
+- `docs/PHASE4_DATABASE_FIRST.md`
+- `docs/PHASE5_MULTIWORKER_RUNTIME.md`
 - `docs/CODEX_SETUP.md`
 - `AGENTS.md`
 - `prompts/architect.md`

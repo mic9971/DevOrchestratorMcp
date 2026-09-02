@@ -14,6 +14,8 @@ enabled_tools = [
   "task_get",
   "task_list_page",
   "task_get_next",
+  "task_claim_next",
+  "task_heartbeat",
   "task_start",
   "task_add_evidence",
   "task_submit_review",

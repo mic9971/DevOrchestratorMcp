@@ -8,47 +8,41 @@ public sealed class SecurityOptionsValidator : IValidateOptions<SecurityOptions>
 
     public ValidateOptionsResult Validate(string? name, SecurityOptions options)
     {
-        if (!options.RequireAuthentication)
-        {
-            return ValidateOptionsResult.Success;
-        }
+        if (!options.RequireAuthentication) return ValidateOptionsResult.Success;
 
-        var keys = new[]
+        var currentKeys = new[]
         {
-            (Role: "Architect", Key: options.ArchitectKey),
-            (Role: "Implementer", Key: options.ImplementerKey),
-            (Role: "Auditor", Key: options.AuditorKey)
+            (Name: "Architect", Key: options.ArchitectKey),
+            (Name: "Implementer", Key: options.ImplementerKey),
+            (Name: "Auditor", Key: options.AuditorKey)
         };
 
-        var missing = keys
-            .Where(x => string.IsNullOrWhiteSpace(x.Key))
-            .Select(x => x.Role)
-            .ToArray();
-
+        var missing = currentKeys.Where(x => string.IsNullOrWhiteSpace(x.Key)).Select(x => x.Name).ToArray();
         if (missing.Length > 0)
         {
-            return ValidateOptionsResult.Fail(
-                $"MCP authentication requires keys for: {string.Join(", ", missing)}.");
+            return ValidateOptionsResult.Fail($"MCP authentication requires keys for: {string.Join(", ", missing)}.");
         }
 
-        var shortKeys = keys
-            .Where(x => x.Key!.Length < MinimumKeyLength)
-            .Select(x => x.Role)
-            .ToArray();
+        var allKeys = new[]
+        {
+            (Name: "Architect", Key: options.ArchitectKey),
+            (Name: "ArchitectPrevious", Key: options.ArchitectPreviousKey),
+            (Name: "Implementer", Key: options.ImplementerKey),
+            (Name: "ImplementerPrevious", Key: options.ImplementerPreviousKey),
+            (Name: "Auditor", Key: options.AuditorKey),
+            (Name: "AuditorPrevious", Key: options.AuditorPreviousKey)
+        }.Where(x => !string.IsNullOrWhiteSpace(x.Key)).ToArray();
 
+        var shortKeys = allKeys.Where(x => x.Key!.Length < MinimumKeyLength).Select(x => x.Name).ToArray();
         if (shortKeys.Length > 0)
         {
             return ValidateOptionsResult.Fail(
                 $"MCP role keys must be at least {MinimumKeyLength} characters: {string.Join(", ", shortKeys)}.");
         }
 
-        var distinct = keys
-            .Select(x => x.Key!)
-            .Distinct(StringComparer.Ordinal)
-            .Count();
-
-        return distinct == keys.Length
+        var distinct = allKeys.Select(x => x.Key!).Distinct(StringComparer.Ordinal).Count();
+        return distinct == allKeys.Length
             ? ValidateOptionsResult.Success
-            : ValidateOptionsResult.Fail("Architect, Implementer, and Auditor keys must be distinct.");
+            : ValidateOptionsResult.Fail("Current and previous MCP role keys must all be distinct.");
     }
 }

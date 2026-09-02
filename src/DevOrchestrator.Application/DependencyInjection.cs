@@ -11,11 +11,11 @@ public static class DependencyInjection
         services.AddSingleton<IClock, SystemClock>();
         services.AddScoped<IProjectService, ProjectService>();
         services.AddScoped<ITaskService, TaskService>();
+        services.AddScoped<ITaskLeaseService, TaskLeaseService>();
         services.AddScoped<ITaskQueryService, TaskQueryService>();
         services.AddScoped<IReviewService, ReviewService>();
         services.AddScoped<IGitHubBridgeService, GitHubBridgeService>();
         services.AddScoped<IGitHubWebhookProcessor, GitHubWebhookProcessor>();
-
         return services;
     }
 }

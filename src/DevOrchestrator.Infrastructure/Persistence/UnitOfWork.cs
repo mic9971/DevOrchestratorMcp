@@ -1,5 +1,7 @@
 using DevOrchestrator.Application.Abstractions;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 
 namespace DevOrchestrator.Infrastructure.Persistence;
 
@@ -17,11 +19,15 @@ internal sealed class UnitOfWork(OrchestratorDbContext dbContext) : IUnitOfWork
                 "The task was changed by another actor. Reload the latest task state and retry.",
                 ex);
         }
+        catch (DbUpdateException ex) when (IsUniqueConstraintViolation(ex))
+        {
+            throw new DuplicateKeyException(
+                "A record with the same unique key was created concurrently.",
+                ex);
+        }
     }
 
-    public async Task ExecuteInTransactionAsync(
-        Func<CancellationToken, Task> operation,
-        CancellationToken cancellationToken)
+    public async Task ExecuteInTransactionAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken)
     {
         if (dbContext.Database.CurrentTransaction is not null)
         {
@@ -45,4 +51,12 @@ internal sealed class UnitOfWork(OrchestratorDbContext dbContext) : IUnitOfWork
             }
         });
     }
+
+    private static bool IsUniqueConstraintViolation(DbUpdateException exception)
+        => exception.InnerException switch
+        {
+            PostgresException postgres => postgres.SqlState == PostgresErrorCodes.UniqueViolation,
+            SqliteException sqlite => sqlite.SqliteErrorCode == 19 && sqlite.SqliteExtendedErrorCode is 1555 or 2067,
+            _ => false
+        };
 }

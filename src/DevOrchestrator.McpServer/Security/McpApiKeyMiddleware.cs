@@ -25,18 +25,6 @@ public sealed class McpApiKeyMiddleware(
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(security.ArchitectKey)
-            && string.IsNullOrWhiteSpace(security.ImplementerKey)
-            && string.IsNullOrWhiteSpace(security.AuditorKey))
-        {
-            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-            await context.Response.WriteAsJsonAsync(new
-            {
-                error = "MCP authentication is required but no role keys are configured."
-            });
-            return;
-        }
-
         var suppliedKey = ReadKey(context.Request);
         var role = ResolveRole(suppliedKey, security);
         if (role is null)
@@ -69,31 +57,21 @@ public sealed class McpApiKeyMiddleware(
 
     private static McpCallerRole? ResolveRole(string? suppliedKey, SecurityOptions options)
     {
-        if (Matches(suppliedKey, options.ArchitectKey))
-        {
+        if (MatchesEither(suppliedKey, options.ArchitectKey, options.ArchitectPreviousKey))
             return McpCallerRole.Architect;
-        }
-
-        if (Matches(suppliedKey, options.ImplementerKey))
-        {
+        if (MatchesEither(suppliedKey, options.ImplementerKey, options.ImplementerPreviousKey))
             return McpCallerRole.Implementer;
-        }
-
-        if (Matches(suppliedKey, options.AuditorKey))
-        {
+        if (MatchesEither(suppliedKey, options.AuditorKey, options.AuditorPreviousKey))
             return McpCallerRole.Auditor;
-        }
-
         return null;
     }
 
+    private static bool MatchesEither(string? supplied, string? current, string? previous)
+        => Matches(supplied, current) || Matches(supplied, previous);
+
     private static bool Matches(string? supplied, string? configured)
     {
-        if (string.IsNullOrWhiteSpace(supplied) || string.IsNullOrWhiteSpace(configured))
-        {
-            return false;
-        }
-
+        if (string.IsNullOrWhiteSpace(supplied) || string.IsNullOrWhiteSpace(configured)) return false;
         var suppliedBytes = Encoding.UTF8.GetBytes(supplied);
         var configuredBytes = Encoding.UTF8.GetBytes(configured);
         return suppliedBytes.Length == configuredBytes.Length

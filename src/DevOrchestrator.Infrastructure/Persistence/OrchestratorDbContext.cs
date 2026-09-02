@@ -15,6 +15,7 @@ public sealed class OrchestratorDbContext(DbContextOptions<OrchestratorDbContext
     public DbSet<TaskReview> TaskReviews => Set<TaskReview>();
     public DbSet<TaskEvent> TaskEvents => Set<TaskEvent>();
     public DbSet<GitHubWebhookDelivery> GitHubWebhookDeliveries => Set<GitHubWebhookDelivery>();
+    public DbSet<GitHubWebhookInboxItem> GitHubWebhookInbox => Set<GitHubWebhookInboxItem>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
         => OrchestratorModel.Configure(modelBuilder);
