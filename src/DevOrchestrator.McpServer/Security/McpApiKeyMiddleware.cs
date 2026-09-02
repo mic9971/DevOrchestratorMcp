@@ -12,7 +12,10 @@ public sealed class McpApiKeyMiddleware(
 
     public async Task InvokeAsync(HttpContext context)
     {
-        if (!context.Request.Path.StartsWithSegments("/mcp"))
+        var isMcp = context.Request.Path.StartsWithSegments("/mcp");
+        var isOperational = context.Request.Path.StartsWithSegments("/ops")
+                            || context.Request.Path.StartsWithSegments("/metrics");
+        if (!isMcp && !isOperational)
         {
             await next(context);
             return;
@@ -30,7 +33,14 @@ public sealed class McpApiKeyMiddleware(
         if (role is null)
         {
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            await context.Response.WriteAsJsonAsync(new { error = "Invalid MCP API key." });
+            await context.Response.WriteAsJsonAsync(new { error = "Invalid DevOrchestrator API key." });
+            return;
+        }
+
+        if (isOperational && role != McpCallerRole.Auditor)
+        {
+            context.Response.StatusCode = StatusCodes.Status403Forbidden;
+            await context.Response.WriteAsJsonAsync(new { error = "Auditor role is required for operational endpoints." });
             return;
         }
 
