@@ -30,6 +30,12 @@ internal sealed class TaskLeaseService(
         }
 
         var project = projectResult.Value!;
+        if (!project.IsActive)
+        {
+            return Result<TaskDto?>.Failure(
+                OrchestratorErrors.InvalidState($"Project '{project.Key}' is paused; new worker claims are disabled."));
+        }
+
         var now = clock.UtcNow;
         var task = await tasks.GetClaimCandidateAsync(project.Id, now, cancellationToken);
         if (task is null)
