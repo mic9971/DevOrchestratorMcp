@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <ItemGroup>
+    <ProjectReference Include="..\Shared\DevOrchestrator.Common\DevOrchestrator.Common.csproj" />
+    <ProjectReference Include="..\DevOrchestrator.Domain\DevOrchestrator.Domain.csproj" />
+    <ProjectReference Include="..\DevOrchestrator.Application\DevOrchestrator.Application.csproj" />
+    <ProjectReference Include="..\DevOrchestrator.Infrastructure\DevOrchestrator.Infrastructure.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="ModelContextProtocol.AspNetCore" />
+  </ItemGroup>
+</Project>

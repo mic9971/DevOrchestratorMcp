@@ -1,0 +1,14 @@
+services:
+  dev-orchestrator:
+    build:
+      context: .
+    ports:
+      - "5058:8080"
+    volumes:
+      - orchestrator-data:/app/data
+    environment:
+      ConnectionStrings__Orchestrator: "Data Source=/app/data/dev-orchestrator.db"
+      AllowedHosts: "localhost;127.0.0.1"
+
+volumes:
+  orchestrator-data:

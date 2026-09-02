@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="..\Shared\DevOrchestrator.Common\DevOrchestrator.Common.csproj" />
+    <ProjectReference Include="..\DevOrchestrator.Domain\DevOrchestrator.Domain.csproj" />
+    <ProjectReference Include="..\DevOrchestrator.Application\DevOrchestrator.Application.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Shared\DevOrchestrator.Common\DevOrchestrator.Common.csproj" />
+    <ProjectReference Include="..\..\src\DevOrchestrator.Domain\DevOrchestrator.Domain.csproj" />
+    <ProjectReference Include="..\..\src\DevOrchestrator.Application\DevOrchestrator.Application.csproj" />
+    <ProjectReference Include="..\..\src\DevOrchestrator.Infrastructure\DevOrchestrator.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\DevOrchestrator.McpServer\DevOrchestrator.McpServer.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+  </ItemGroup>
+</Project>

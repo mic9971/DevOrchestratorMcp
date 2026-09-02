@@ -1,0 +1,17 @@
+[mcp_servers.dev_orchestrator]
+url = "http://127.0.0.1:5058/mcp"
+enabled = true
+required = true
+startup_timeout_sec = 20
+tool_timeout_sec = 60
+default_tools_approval_mode = "writes"
+
+enabled_tools = [
+  "project_get",
+  "task_get",
+  "task_get_next",
+  "task_start",
+  "task_add_evidence",
+  "task_submit_review",
+  "task_block"
+]

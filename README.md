@@ -1,81 +1,55 @@
 # DevOrchestratorMcp
 
-A .NET 8 Model Context Protocol (MCP) control plane for an AI-assisted software development workflow where ChatGPT acts as architect/auditor and Codex acts as implementer.
+![CI](https://github.com/mic9971/DevOrchestratorMcp/actions/workflows/ci.yml/badge.svg)
 
-## Goals
+A reusable .NET MCP control plane for an AI software-development loop:
 
-- Keep GitHub as the source of truth for code.
-- Keep task state, dependencies, acceptance criteria, implementation evidence, and audit history in one MCP service.
-- Enforce separation of duties so an implementer cannot approve its own work.
-- Stay small enough for a POC while keeping clean architecture boundaries.
+**ChatGPT Architect → task graph → Codex Implementer → Git evidence → ChatGPT Auditor → done / changes requested**
 
-## Architecture
+The MCP server is deliberately **not** an AI agent. It stores project/task state, enforces task transitions, records implementation evidence, and keeps review history. Git remains the source of truth for code.
 
-```text
-ChatGPT Web (Architect / Auditor)
-            |
-            | Streamable HTTP MCP
-            v
-DevOrchestrator.McpServer
-            |
-            v
-DevOrchestrator.Application
-            |
-     +------+------+
-     |             |
-     v             v
-Domain        Common abstractions
-     |
-     v
-Infrastructure -> SQLite
+## Stack
 
-Codex (Implementer) -- Streamable HTTP MCP --> DevOrchestrator.McpServer
-```
+- .NET 8
+- ASP.NET Core
+- Official `ModelContextProtocol.AspNetCore` C# SDK
+- Streamable HTTP MCP endpoint
+- SQLite for zero-infrastructure POC persistence
+- Clean separation: Common / Domain / Application / Infrastructure / MCP host
+- Domain state-machine tests + architecture dependency tests
 
-## Projects
+## Workflow
 
 ```text
-src/
-  DevOrchestrator.McpServer
-  DevOrchestrator.Application
-  DevOrchestrator.Domain
-  DevOrchestrator.Infrastructure
-  Shared/DevOrchestrator.Common
-
-tests/
-  DevOrchestrator.Domain.Tests
-  DevOrchestrator.Architecture.Tests
+DRAFT
+  │ dependencies satisfied
+  ▼
+READY
+  │ task_start
+  ▼
+IN_PROGRESS
+  │ task_add_evidence
+  │ task_submit_review
+  ▼
+READY_FOR_REVIEW
+  ├── review_submit(ChangesRequested) ──► CHANGES_REQUESTED ──► task_start
+  └── review_submit(Pass) ──────────────► DONE
 ```
 
-## Task lifecycle
-
-```text
-Draft -> Ready -> InProgress -> ReadyForReview
-                         ^          |
-                         |          +-> ChangesRequested
-                         |                      |
-                         +----------------------+
-
-ReadyForReview -> Passed -> Done
-
-Any active task can be Blocked or Cancelled where allowed by the domain rules.
-```
-
-Only review logic can move a submitted task to `Passed` / `Done` or back to `ChangesRequested`.
+A passing review automatically promotes dependent `Draft` tasks to `Ready` when all dependencies are `Done`.
 
 ## MCP tools
 
-Architect / project owner:
-
+Architect:
 - `project_register`
 - `project_get`
+- `project_list`
 - `task_create`
 - `task_create_batch`
 - `task_get`
 - `task_list`
 
-Implementer (Codex):
-
+Implementer / Codex:
 - `project_get`
 - `task_get`
 - `task_get_next`
@@ -85,84 +59,87 @@ Implementer (Codex):
 - `task_block`
 
 Auditor:
-
 - `project_get`
 - `task_get`
 - `task_list`
 - `review_submit`
 - `task_reopen`
+- `task_resume`
+
+**Codex should not be granted `review_submit`.** This prevents the implementation agent from approving its own work.
 
 ## Run locally
 
-Requirements:
-
-- .NET 8 SDK
+Prerequisites: .NET 8 SDK.
 
 ```bash
 dotnet restore
-dotnet build --configuration Release
-dotnet test --configuration Release
+dotnet build
+dotnet test
 dotnet run --project src/DevOrchestrator.McpServer
 ```
 
-Default MCP endpoint:
+Default endpoints:
 
 ```text
-http://localhost:5080/mcp
+http://localhost:5000/mcp
+http://localhost:5000/healthz
 ```
 
-Health endpoint:
-
-```text
-http://localhost:5080/health
-```
-
-The POC uses SQLite at `data/dev-orchestrator.db` by default.
-
-## Run with Docker
+Kestrel may select another development port if environment variables or launch settings override it. For a fixed port:
 
 ```bash
-docker compose up --build
+ASPNETCORE_URLS=http://127.0.0.1:5058 dotnet run --project src/DevOrchestrator.McpServer
 ```
 
-## Configure Codex
+Then use:
 
-Copy `.codex/config.toml.example` to the target repository as `.codex/config.toml` and adjust the URL if required.
+```text
+http://127.0.0.1:5058/mcp
+```
 
-The example intentionally enables only implementer-safe tools. Do not add `review_submit`, `task_create`, or `task_create_batch` to Codex unless you deliberately want to remove separation of duties.
+## Codex configuration
 
-See [docs/CODEX_SETUP.md](docs/CODEX_SETUP.md).
+See `docs/CODEX_SETUP.md` and `.codex/config.toml.example`.
 
-## Workflow
+## First project bootstrap
 
-1. ChatGPT reads a target GitHub repository and creates a project record.
-2. ChatGPT breaks a requirement into small tasks with acceptance criteria and dependency links.
-3. Codex requests `task_get_next` and starts the returned task.
-4. Codex implements the code, runs build/tests, commits/pushes changes, and records evidence.
-5. Codex calls `task_submit_review`.
-6. ChatGPT reads the task plus GitHub diff/CI output and calls `review_submit`.
-7. Approval completes the task and unlocks dependent tasks; requested changes return it to Codex.
-
-See [docs/WORKFLOW.md](docs/WORKFLOW.md).
-
-## Security model for v1
-
-The MCP server exposes all tools at the server level. Client-side tool allowlists enforce the initial role split. For production, add authentication/authorization at the MCP server and map caller identity to server-side tool policies.
+1. ChatGPT reads the target GitHub repo and creates a plan.
+2. Register the target repo with `project_register`.
+3. ChatGPT breaks the plan into small dependency-aware tasks with `task_create_batch`.
+4. Codex repeatedly calls `task_get_next`, implements one task, records evidence, then calls `task_submit_review`.
+5. ChatGPT reads the task + target repo diff/PR and calls `review_submit`.
+6. If changes are requested, Codex receives that task before new work.
 
 ## Persistence
 
-SQLite is selected for the first POC to remove infrastructure friction. The repository/application boundary keeps migration to PostgreSQL straightforward when concurrent users and hosted deployment become necessary.
+The POC uses:
 
-## CI
+```text
+src/DevOrchestrator.McpServer/data/dev-orchestrator.db
+```
 
-`.github/workflows/ci.yml` runs restore, release build, domain tests, and architecture tests on pushes and pull requests.
+The `data/` directory is ignored by Git.
 
-## Next production steps
+The current version uses `EnsureCreated` for a low-friction POC. Before production deployment, replace it with EF Core migrations and move to PostgreSQL if multiple server replicas or operational DB controls are required.
 
-- OAuth/OIDC or API-key authentication for MCP callers.
-- Server-side actor roles and authorization policies.
-- EF Core migrations and PostgreSQL provider.
-- GitHub App integration/webhooks for commit, PR and CI evidence.
-- Concurrency tokens/optimistic locking for task state transitions.
-- OpenTelemetry traces/metrics.
-- Integration tests with a real HTTP MCP client.
+## Security
+
+For local use, `AllowedHosts` is restricted to loopback names. For remote deployment:
+
+- serve MCP behind HTTPS;
+- use authentication;
+- configure exact allowed hosts;
+- keep Architect/Auditor tools out of the Codex allow-list;
+- treat `review_submit` as privileged;
+- never place GitHub tokens in task descriptions/evidence.
+
+## Design docs
+
+- `docs/ARCHITECTURE.md`
+- `docs/WORKFLOW.md`
+- `docs/CODEX_SETUP.md`
+- `AGENTS.md`
+- `prompts/architect.md`
+- `prompts/implementer.md`
+- `prompts/auditor.md`
