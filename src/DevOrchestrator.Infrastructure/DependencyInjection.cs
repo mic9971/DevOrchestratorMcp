@@ -2,6 +2,7 @@ using DevOrchestrator.Application.Abstractions;
 using DevOrchestrator.Infrastructure.GitHub;
 using DevOrchestrator.Infrastructure.Persistence;
 using DevOrchestrator.Infrastructure.Repositories;
+using Microsoft.Data.Sqlite;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,7 +13,8 @@ public static class DependencyInjection
 {
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        string? contentRootPath = null)
     {
         var provider = configuration["Database:Provider"]?.Trim().ToLowerInvariant() ?? "sqlite";
         var connectionString = configuration.GetConnectionString("Orchestrator");
@@ -33,7 +35,9 @@ public static class DependencyInjection
                     $"Unsupported Database:Provider '{provider}'. Use 'sqlite' or 'postgres'.");
             }
 
-            options.UseSqlite(connectionString ?? "Data Source=data/dev-orchestrator.db");
+            options.UseSqlite(ResolveSqliteConnectionString(
+                connectionString ?? "Data Source=data/dev-orchestrator.db",
+                contentRootPath));
         });
 
         services.AddScoped<ITargetProjectRepository, TargetProjectRepository>();
@@ -46,5 +50,25 @@ public static class DependencyInjection
         services.AddSingleton<IGitHubBridgeClient, GitHubBridgeClient>();
 
         return services;
+    }
+
+    private static string ResolveSqliteConnectionString(
+        string connectionString,
+        string? contentRootPath)
+    {
+        var builder = new SqliteConnectionStringBuilder(connectionString);
+        if (string.IsNullOrWhiteSpace(builder.DataSource)
+            || builder.DataSource == ":memory:"
+            || Path.IsPathRooted(builder.DataSource))
+        {
+            return builder.ToString();
+        }
+
+        var root = string.IsNullOrWhiteSpace(contentRootPath)
+            ? Directory.GetCurrentDirectory()
+            : contentRootPath;
+
+        builder.DataSource = Path.GetFullPath(Path.Combine(root, builder.DataSource));
+        return builder.ToString();
     }
 }
