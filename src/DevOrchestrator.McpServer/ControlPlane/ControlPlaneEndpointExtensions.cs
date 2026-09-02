@@ -143,8 +143,9 @@ public static class ControlPlaneEndpointExtensions
         if (parsedStatus.HasValue)
             query = query.Where(x => x.task.Status == parsedStatus.Value);
 
+        // Project key + task code is a stable provider-independent order. SQLite cannot ORDER BY DateTimeOffset.
         var rows = await query
-            .OrderByDescending(x => x.task.UpdatedAtUtc)
+            .OrderBy(x => x.project.Key)
             .ThenBy(x => x.task.Code)
             .Skip(skip)
             .Take(take + 1)
@@ -154,8 +155,8 @@ public static class ControlPlaneEndpointExtensions
                 ProjectName = x.project.Name,
                 x.task.Code,
                 x.task.Title,
-                Status = x.task.Status.ToString(),
-                Priority = x.task.Priority.ToString(),
+                x.task.Status,
+                x.task.Priority,
                 x.task.ActiveBranch,
                 x.task.LastCommitSha,
                 x.task.PullRequestUrl,
@@ -169,7 +170,25 @@ public static class ControlPlaneEndpointExtensions
             .ToListAsync(cancellationToken);
 
         var hasMore = rows.Count > take;
-        var items = rows.Take(take).ToArray();
+        var items = rows.Take(take).Select(x => new
+        {
+            x.ProjectKey,
+            x.ProjectName,
+            x.Code,
+            x.Title,
+            Status = x.Status.ToString(),
+            Priority = x.Priority.ToString(),
+            x.ActiveBranch,
+            x.LastCommitSha,
+            x.PullRequestUrl,
+            x.BlockReason,
+            x.LeaseOwner,
+            x.LeaseExpiresAtUtc,
+            x.LastHeartbeatAtUtc,
+            x.UpdatedAtUtc,
+            x.Revision
+        }).ToArray();
+
         return Results.Ok(new
         {
             offset = skip,
@@ -296,20 +315,30 @@ public static class ControlPlaneEndpointExtensions
             query = query.Where(x => x.task.Code == code);
         }
 
-        var rows = await query
-            .OrderByDescending(x => x.taskEvent.CreatedAtUtc)
-            .Skip(skip)
-            .Take(take + 1)
-            .Select(x => new
-            {
-                ProjectKey = x.project.Key,
-                TaskCode = x.task.Code,
-                x.taskEvent.EventType,
-                x.taskEvent.Actor,
-                x.taskEvent.PayloadJson,
-                x.taskEvent.CreatedAtUtc
-            })
-            .ToListAsync(cancellationToken);
+        var projected = query.Select(x => new
+        {
+            ProjectKey = x.project.Key,
+            TaskCode = x.task.Code,
+            x.taskEvent.EventType,
+            x.taskEvent.Actor,
+            x.taskEvent.PayloadJson,
+            x.taskEvent.CreatedAtUtc
+        });
+
+        // PostgreSQL performs the bounded chronological page in SQL. SQLite is local-dev only and
+        // cannot sort DateTimeOffset, so it materializes the filtered audit set before sorting.
+        var isSqlite = db.Database.ProviderName?.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) == true;
+        var rows = isSqlite
+            ? (await projected.ToListAsync(cancellationToken))
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .Skip(skip)
+                .Take(take + 1)
+                .ToList()
+            : await projected
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .Skip(skip)
+                .Take(take + 1)
+                .ToListAsync(cancellationToken);
 
         var hasMore = rows.Count > take;
         return Results.Ok(new
