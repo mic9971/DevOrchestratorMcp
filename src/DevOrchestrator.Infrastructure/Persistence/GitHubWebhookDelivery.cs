@@ -9,11 +9,13 @@ public sealed class GitHubWebhookDelivery
     public GitHubWebhookDelivery(
         string deliveryId,
         string eventName,
-        DateTimeOffset receivedAtUtc)
+        DateTimeOffset receivedAtUtc,
+        DateTimeOffset leaseExpiresAtUtc)
     {
         DeliveryId = deliveryId;
         EventName = eventName;
         ReceivedAtUtc = receivedAtUtc;
+        LeaseExpiresAtUtc = leaseExpiresAtUtc;
     }
 
     public string DeliveryId { get; private set; } = string.Empty;
@@ -21,6 +23,8 @@ public sealed class GitHubWebhookDelivery
     public string EventName { get; private set; } = string.Empty;
 
     public DateTimeOffset ReceivedAtUtc { get; private set; }
+
+    public DateTimeOffset LeaseExpiresAtUtc { get; private set; }
 
     public DateTimeOffset? CompletedAtUtc { get; private set; }
 
