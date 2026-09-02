@@ -12,8 +12,10 @@ public sealed class HttpEndpointIntegrationTests
     [Fact]
     public async Task Health_readiness_mcp_auth_and_webhook_signature_are_enforced_over_http()
     {
+        var databaseDirectory = Path.Combine(AppContext.BaseDirectory, "integration-data");
+        Directory.CreateDirectory(databaseDirectory);
         var databasePath = Path.Combine(
-            Path.GetTempPath(),
+            databaseDirectory,
             $"devorchestrator-http-{Guid.NewGuid():N}.db");
 
         try
