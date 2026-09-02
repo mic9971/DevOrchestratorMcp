@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using DevOrchestrator.Application.Contracts;
 using DevOrchestrator.Application.Services;
+using DevOrchestrator.McpServer.Security;
 using ModelContextProtocol.Server;
 
 namespace DevOrchestrator.McpServer.Tools;
@@ -27,8 +28,11 @@ public static class TaskTools
         [Description("low, normal, high, or critical.")] string priority,
         [Description("Actor creating the task, for example chatgpt-architect.")] string actor,
         ITaskService service,
+        ToolAuthorizer authorizer,
         CancellationToken cancellationToken)
     {
+        authorizer.Require(McpCallerRole.Architect);
+
         var seed = new CreateTaskSeed(
             code,
             title,
@@ -55,9 +59,13 @@ public static class TaskTools
         [Description("Task seeds. Dependencies reference task codes in this batch or existing tasks.")] CreateTaskSeed[] tasks,
         [Description("Actor creating the task graph, for example chatgpt-architect.")] string actor,
         ITaskService service,
+        ToolAuthorizer authorizer,
         CancellationToken cancellationToken)
-        => ToolResponse<BatchCreateResult>.From(
+    {
+        authorizer.Require(McpCallerRole.Architect);
+        return ToolResponse<BatchCreateResult>.From(
             await service.CreateBatchAsync(projectKey, tasks, actor, cancellationToken));
+    }
 
     [McpServerTool(
         Name = "task_get",
@@ -120,14 +128,18 @@ public static class TaskTools
         [Description("Implementer actor, for example codex.")] string actor,
         [Description("Working Git branch, if already known.")] string? branch,
         ITaskService service,
+        ToolAuthorizer authorizer,
         CancellationToken cancellationToken)
-        => ToolResponse<TaskDto>.From(
+    {
+        authorizer.Require(McpCallerRole.Implementer);
+        return ToolResponse<TaskDto>.From(
             await service.StartAsync(
                 projectKey,
                 taskCode,
                 actor,
                 branch,
                 cancellationToken));
+    }
 
     [McpServerTool(
         Name = "task_add_evidence",
@@ -149,8 +161,11 @@ public static class TaskTools
         [Description("Optional implementation notes or known limitations.")] string? notes,
         [Description("Implementer actor, for example codex.")] string actor,
         ITaskService service,
+        ToolAuthorizer authorizer,
         CancellationToken cancellationToken)
     {
+        authorizer.Require(McpCallerRole.Implementer);
+
         var evidence = new EvidenceInput(
             branch,
             commitSha,
@@ -182,13 +197,17 @@ public static class TaskTools
         [Description("Task code.")] string taskCode,
         [Description("Implementer actor, for example codex.")] string actor,
         ITaskService service,
+        ToolAuthorizer authorizer,
         CancellationToken cancellationToken)
-        => ToolResponse<TaskDto>.From(
+    {
+        authorizer.Require(McpCallerRole.Implementer);
+        return ToolResponse<TaskDto>.From(
             await service.SubmitForReviewAsync(
                 projectKey,
                 taskCode,
                 actor,
                 cancellationToken));
+    }
 
     [McpServerTool(
         Name = "task_block",
@@ -204,14 +223,18 @@ public static class TaskTools
         string reason,
         string actor,
         ITaskService service,
+        ToolAuthorizer authorizer,
         CancellationToken cancellationToken)
-        => ToolResponse<TaskDto>.From(
+    {
+        authorizer.Require(McpCallerRole.Implementer);
+        return ToolResponse<TaskDto>.From(
             await service.BlockAsync(
                 projectKey,
                 taskCode,
                 reason,
                 actor,
                 cancellationToken));
+    }
 
     [McpServerTool(
         Name = "task_resume",
@@ -226,13 +249,17 @@ public static class TaskTools
         string taskCode,
         string actor,
         ITaskService service,
+        ToolAuthorizer authorizer,
         CancellationToken cancellationToken)
-        => ToolResponse<TaskDto>.From(
+    {
+        authorizer.Require(McpCallerRole.Auditor, McpCallerRole.Architect);
+        return ToolResponse<TaskDto>.From(
             await service.ResumeAsync(
                 projectKey,
                 taskCode,
                 actor,
                 cancellationToken));
+    }
 
     [McpServerTool(
         Name = "task_reopen",
@@ -248,12 +275,16 @@ public static class TaskTools
         string reason,
         string actor,
         ITaskService service,
+        ToolAuthorizer authorizer,
         CancellationToken cancellationToken)
-        => ToolResponse<TaskDto>.From(
+    {
+        authorizer.Require(McpCallerRole.Auditor);
+        return ToolResponse<TaskDto>.From(
             await service.ReopenAsync(
                 projectKey,
                 taskCode,
                 reason,
                 actor,
                 cancellationToken));
+    }
 }
