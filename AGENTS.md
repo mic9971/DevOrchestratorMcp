@@ -31,13 +31,25 @@ DevOrchestrator.Infrastructure
 
 Rules:
 
-1. Domain must not reference Application, Infrastructure, ASP.NET Core, MCP SDK, or EF Core.
+1. Domain must not reference Application, Infrastructure, ASP.NET Core, MCP SDK, EF Core, or GitHub HTTP concerns.
 2. Application must not reference Infrastructure or MCP SDK.
 3. MCP tool classes are adapters only. Business/state transition logic belongs in Domain/Application.
-4. Infrastructure implements persistence abstractions declared by Application.
-5. Common contains only genuinely cross-cutting primitives. No task/review business entities in Common.
-6. Git provider integration, if added later, belongs in Infrastructure behind Application abstractions.
+4. Infrastructure implements persistence and external-provider abstractions declared by Application.
+5. Common contains only genuinely cross-cutting primitives. No task/review/GitHub bridge business contracts in Common.
+6. GitHub integration belongs in Infrastructure behind Application abstractions; GitHub contract semantics belong in Application.
 7. Do not add RabbitMQ, Redis, or microservices unless an explicit scaling requirement exists.
+
+## GitHub Bridge invariants
+
+- A Plan Issue must contain exactly one `devorchestrator-plan` fenced block.
+- Only schema `devorchestrator.plan.v1` is accepted in Phase 2.
+- Plan `projectKey` must match the registered target project.
+- Import is idempotent by normalized task code.
+- A review comment must use schema `devorchestrator.review.v1`.
+- Review sync only applies to tasks currently `ReadyForReview`.
+- A review older than the current task submission must never apply.
+- Ordinary GitHub comments must not be treated as invalid reviews.
+- Codex must not receive direct `review_submit` permission.
 
 ## Task-state invariants
 
@@ -54,13 +66,14 @@ Rules:
 
 When implementing this repository or when this MCP is used by Codex on a target repository:
 
-1. Read the task completely.
-2. Do not expand scope.
-3. Follow target repository `AGENTS.md`.
-4. Run the narrowest relevant build/tests first, then required broader checks.
-5. Attach real evidence: branch, commit SHA, changed files, commands, and test results.
-6. Call `task_submit_review`.
-7. Stop. Do not call reviewer tools.
+1. If a GitHub Plan Issue is supplied, call `bridge_import_plan_issue` and `bridge_sync_reviews` first.
+2. Read the selected task completely.
+3. Do not expand scope.
+4. Follow target repository `AGENTS.md`.
+5. Run the narrowest relevant build/tests first, then required broader checks.
+6. Attach real evidence: branch, commit SHA, changed files, commands, and test results.
+7. Call `task_submit_review`.
+8. Stop. Do not call reviewer tools.
 
 ## Definition of done
 
