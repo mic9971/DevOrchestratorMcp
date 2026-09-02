@@ -1,3 +1,4 @@
+using DevOrchestrator.Domain.Identity;
 using DevOrchestrator.Domain.Projects;
 using DevOrchestrator.Domain.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -16,6 +17,10 @@ public sealed class OrchestratorDbContext(DbContextOptions<OrchestratorDbContext
     public DbSet<TaskEvent> TaskEvents => Set<TaskEvent>();
     public DbSet<GitHubWebhookDelivery> GitHubWebhookDeliveries => Set<GitHubWebhookDelivery>();
     public DbSet<GitHubWebhookInboxItem> GitHubWebhookInbox => Set<GitHubWebhookInboxItem>();
+    public DbSet<HumanIdentityUser> HumanIdentityUsers => Set<HumanIdentityUser>();
+    public DbSet<HumanIdentityRole> HumanIdentityRoles => Set<HumanIdentityRole>();
+    public DbSet<MachineCredential> MachineCredentials => Set<MachineCredential>();
+    public DbSet<SecurityAuditEvent> SecurityAuditEvents => Set<SecurityAuditEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
         => OrchestratorModel.Configure(modelBuilder);
