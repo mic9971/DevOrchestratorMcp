@@ -44,6 +44,28 @@ public sealed class TaskLeaseTests
     }
 
     [Fact]
+    public void Manual_expiry_makes_live_worker_lease_immediately_reclaimable()
+    {
+        var now = new DateTimeOffset(2026, 9, 2, 7, 0, 0, TimeSpan.Zero);
+        var task = DevelopmentTask.Create(
+            Guid.NewGuid(), "P6-OPS", "Operations", "Recover dead worker", ["Reclaim works"], null,
+            TaskPriority.High, "architect", now);
+        task.MarkReady("architect", now);
+        task.Claim("implementer", "worker-dead", "feature/dead", now, TimeSpan.FromMinutes(10));
+
+        var releaseAt = now.AddMinutes(1);
+        task.ExpireLease("mcp:auditor", "worker process terminated", releaseAt);
+
+        Assert.True(task.IsClaimable(releaseAt));
+        Assert.Equal("worker-dead", task.LeaseOwner);
+        Assert.Equal(releaseAt, task.LeaseExpiresAtUtc);
+
+        task.Claim("implementer", "worker-recovery", "feature/recovery", releaseAt, TimeSpan.FromMinutes(10));
+        Assert.Equal("worker-recovery", task.LeaseOwner);
+        Assert.Equal("feature/recovery", task.ActiveBranch);
+    }
+
+    [Fact]
     public void Submit_for_review_releases_worker_lease()
     {
         var now = DateTimeOffset.UtcNow;
