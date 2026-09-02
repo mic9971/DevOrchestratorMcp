@@ -13,4 +13,5 @@ public sealed record GitHubWebhookProcessResult(
     string Action,
     string Outcome,
     string? ProjectKey,
-    int IssueNumber);
+    int IssueNumber,
+    string? Detail = null);
