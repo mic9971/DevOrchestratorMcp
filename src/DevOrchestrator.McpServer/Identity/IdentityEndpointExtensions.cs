@@ -16,7 +16,7 @@ public static class IdentityEndpointExtensions
     {
         endpoints.MapGet("/auth/status", GetStatus);
         endpoints.MapGet("/auth/login", Login);
-        endpoints.MapPost("/auth/logout", LogoutAsync);
+        endpoints.MapPost("/auth/logout", async (HttpContext context) => await LogoutAsync(context));
         endpoints.MapGet("/auth/denied", () => Results.Json(new { error = "identity.access_denied" }, statusCode: StatusCodes.Status403Forbidden));
 
         endpoints.MapGet("/control/api/users", ListUsersAsync);
