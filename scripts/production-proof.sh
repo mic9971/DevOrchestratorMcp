@@ -54,7 +54,7 @@ echo "[proof] running PostgreSQL backup/restore drill"
 mkdir -p backups
 export DEVORCHESTRATOR_DOCKER_NETWORK="${COMPOSE_PROJECT_NAME}_default"
 export DEVORCHESTRATOR_PG_URL="postgresql://devorchestrator:${POSTGRES_PASSWORD}@postgres:5432/devorchestrator"
-BACKUP_FILE="$(./scripts/backup-postgres.sh ./backups/phase6-proof.dump)"
+BACKUP_FILE="$(bash ./scripts/backup-postgres.sh ./backups/phase6-proof.dump)"
 
 docker compose -f compose.yaml exec -T postgres \
   psql -U devorchestrator -d postgres -v ON_ERROR_STOP=1 \
@@ -62,7 +62,7 @@ docker compose -f compose.yaml exec -T postgres \
   -c 'CREATE DATABASE devorchestrator_restore;'
 
 export DEVORCHESTRATOR_RESTORE_PG_URL="postgresql://devorchestrator:${POSTGRES_PASSWORD}@postgres:5432/devorchestrator_restore"
-./scripts/restore-postgres.sh "$BACKUP_FILE"
+bash ./scripts/restore-postgres.sh "$BACKUP_FILE"
 
 migration_count="$(docker compose -f compose.yaml exec -T postgres \
   psql -U devorchestrator -d devorchestrator_restore -tAc \
