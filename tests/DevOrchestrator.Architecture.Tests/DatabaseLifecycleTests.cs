@@ -23,6 +23,10 @@ public sealed class DatabaseLifecycleTests
                 await using var seedScope = seedProvider.CreateAsyncScope();
                 var db = seedScope.ServiceProvider.GetRequiredService<OrchestratorDbContext>();
 
+                await db.Database.ExecuteSqlRawAsync("DROP TABLE IF EXISTS identity_user_roles;");
+                await db.Database.ExecuteSqlRawAsync("DROP TABLE IF EXISTS machine_credentials;");
+                await db.Database.ExecuteSqlRawAsync("DROP TABLE IF EXISTS security_audit_events;");
+                await db.Database.ExecuteSqlRawAsync("DROP TABLE IF EXISTS identity_users;");
                 await db.Database.ExecuteSqlRawAsync("DROP INDEX IF EXISTS IX_tasks_ProjectId_Status_LeaseExpiresAtUtc;");
                 await db.Database.ExecuteSqlRawAsync("ALTER TABLE tasks DROP COLUMN LeaseOwner;");
                 await db.Database.ExecuteSqlRawAsync("ALTER TABLE tasks DROP COLUMN LeaseExpiresAtUtc;");
@@ -40,6 +44,7 @@ public sealed class DatabaseLifecycleTests
             Assert.Contains(DatabaseInitializer.InitialMigrationId, applied);
             Assert.Contains("202609020002_TaskWorkerLeases", applied);
             Assert.Contains("202609020003_DurableWebhookInbox", applied);
+            Assert.Contains("202609020004_IdentityGovernance", applied);
             Assert.Empty(await current.Database.GetPendingMigrationsAsync());
         }
         finally
@@ -102,6 +107,7 @@ public sealed class DatabaseLifecycleTests
         await using var db = new OrchestratorDbContext(options);
         Assert.True(await db.Database.CanConnectAsync());
         Assert.Contains(DatabaseInitializer.InitialMigrationId, await db.Database.GetAppliedMigrationsAsync());
+        Assert.Contains("202609020004_IdentityGovernance", await db.Database.GetAppliedMigrationsAsync());
         Assert.Empty(await db.Database.GetPendingMigrationsAsync());
     }
 

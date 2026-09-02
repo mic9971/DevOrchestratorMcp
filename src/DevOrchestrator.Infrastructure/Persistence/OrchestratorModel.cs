@@ -1,3 +1,4 @@
+using DevOrchestrator.Domain.Identity;
 using DevOrchestrator.Domain.Projects;
 using DevOrchestrator.Domain.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -114,6 +115,56 @@ internal static class OrchestratorModel
             entity.Property(x => x.RepositoryUrl).HasMaxLength(500);
             entity.Property(x => x.LastError).HasMaxLength(4000);
             entity.HasIndex(x => new { x.CompletedAtUtc, x.NextAttemptAtUtc, x.LeaseExpiresAtUtc });
+        });
+
+        modelBuilder.Entity<HumanIdentityUser>(entity =>
+        {
+            entity.ToTable("identity_users");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => new { x.Provider, x.Subject }).IsUnique();
+            entity.HasIndex(x => x.Login);
+            entity.Property(x => x.Provider).HasMaxLength(40);
+            entity.Property(x => x.Subject).HasMaxLength(200);
+            entity.Property(x => x.Login).HasMaxLength(120);
+            entity.Property(x => x.DisplayName).HasMaxLength(200);
+            entity.Property(x => x.Email).HasMaxLength(320);
+        });
+
+        modelBuilder.Entity<HumanIdentityRole>(entity =>
+        {
+            entity.ToTable("identity_user_roles");
+            entity.HasKey(x => new { x.UserId, x.Role });
+            entity.Property(x => x.Role).HasMaxLength(40);
+            entity.Property(x => x.GrantedBy).HasMaxLength(200);
+            entity.HasOne<HumanIdentityUser>().WithMany().HasForeignKey(x => x.UserId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<MachineCredential>(entity =>
+        {
+            entity.ToTable("machine_credentials");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.KeyHash).IsUnique();
+            entity.HasIndex(x => new { x.IsActive, x.ExpiresAtUtc });
+            entity.Property(x => x.Name).HasMaxLength(160);
+            entity.Property(x => x.KeyHash).HasMaxLength(64);
+            entity.Property(x => x.KeyPrefix).HasMaxLength(16);
+            entity.Property(x => x.Role).HasMaxLength(40);
+            entity.Property(x => x.CreatedBy).HasMaxLength(200);
+        });
+
+        modelBuilder.Entity<SecurityAuditEvent>(entity =>
+        {
+            entity.ToTable("security_audit_events");
+            entity.HasKey(x => x.Id);
+            entity.HasIndex(x => x.CreatedAtUtc);
+            entity.HasIndex(x => new { x.ResourceType, x.ResourceId });
+            entity.Property(x => x.Actor).HasMaxLength(200);
+            entity.Property(x => x.ActorType).HasMaxLength(40);
+            entity.Property(x => x.Action).HasMaxLength(120);
+            entity.Property(x => x.ResourceType).HasMaxLength(80);
+            entity.Property(x => x.ResourceId).HasMaxLength(300);
+            entity.Property(x => x.Reason).HasMaxLength(2000);
+            entity.Property(x => x.IpAddress).HasMaxLength(80);
         });
     }
 }

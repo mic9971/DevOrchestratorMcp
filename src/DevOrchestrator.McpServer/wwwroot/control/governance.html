@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>DevOrchestrator Governance</title>
+  <link rel="stylesheet" href="/control/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/control"><span class="brand-mark">DO</span><span><strong>DevOrchestrator</strong><small>Governance</small></span></a>
+      <nav class="nav">
+        <a class="nav-item" href="/control"><span>←</span> Control Plane</a>
+        <button class="nav-item active" data-governance-view="users"><span>01</span> Users</button>
+        <button class="nav-item" data-governance-view="credentials"><span>02</span> Credentials</button>
+        <button class="nav-item" data-governance-view="security-audit"><span>03</span> Security Audit</button>
+      </nav>
+    </aside>
+    <main class="main">
+      <header class="topbar"><div><p class="eyebrow">IDENTITY & GOVERNANCE</p><h1 id="governance-title">Users</h1></div><a class="ghost" href="/control">Back to control plane</a></header>
+      <div id="governance-error" class="alert error hidden"></div>
+      <div id="governance-secret" class="alert hidden"></div>
+
+      <section id="governance-users" class="view active">
+        <article class="panel full">
+          <div class="panel-head"><div><p class="eyebrow">HUMAN IDENTITY</p><h2>Users & roles</h2></div><span id="current-user" class="pill"></span></div>
+          <div class="table-wrap"><table><thead><tr><th>User</th><th>Provider</th><th>Roles</th><th>Last login</th><th>State</th><th></th></tr></thead><tbody id="users-table"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="governance-credentials" class="view">
+        <article class="panel full">
+          <div class="panel-head stack-mobile"><div><p class="eyebrow">MACHINE IDENTITY</p><h2>Credentials</h2></div></div>
+          <form id="credential-form" class="filters">
+            <input id="credential-name" required maxlength="160" placeholder="Credential name">
+            <select id="credential-role"><option>Architect</option><option>Implementer</option><option>Auditor</option></select>
+            <input id="credential-expiry" type="number" min="1" max="365" value="90" aria-label="Expiry days">
+            <button class="primary" type="submit">Create credential</button>
+          </form>
+          <div class="table-wrap"><table><thead><tr><th>Name</th><th>Role</th><th>Prefix</th><th>Expires</th><th>Last used</th><th>State</th><th></th></tr></thead><tbody id="credentials-table"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="governance-security-audit" class="view">
+        <article class="panel full">
+          <div class="panel-head"><div><p class="eyebrow">SECURITY HISTORY</p><h2>Identity & privileged operations</h2></div><button id="audit-refresh" class="ghost compact">Refresh</button></div>
+          <div id="security-audit-list" class="timeline"></div>
+        </article>
+      </section>
+    </main>
+  </div>
+  <script src="/control/governance.js" defer></script>
+</body>
+</html>

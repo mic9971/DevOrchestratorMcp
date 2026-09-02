@@ -3,6 +3,7 @@ using DevOrchestrator.Application;
 using DevOrchestrator.Infrastructure;
 using DevOrchestrator.Infrastructure.Persistence;
 using DevOrchestrator.McpServer.ControlPlane;
+using DevOrchestrator.McpServer.Identity;
 using DevOrchestrator.McpServer.Operations;
 using DevOrchestrator.McpServer.Security;
 using DevOrchestrator.McpServer.Webhooks;
@@ -29,6 +30,7 @@ if (migrateOnly)
 
 builder.Services.AddApplication();
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddHumanIdentity(builder.Configuration);
 builder.Services.AddOptions<SecurityOptions>().Bind(builder.Configuration.GetSection("Security")).ValidateOnStart();
 builder.Services.AddSingleton<IValidateOptions<SecurityOptions>, SecurityOptionsValidator>();
 builder.Services.Configure<GitHubWebhookOptions>(builder.Configuration.GetSection("GitHub"));
@@ -76,15 +78,18 @@ builder.Services.AddMcpServer().WithHttpTransport(options => options.Stateless =
 var app = builder.Build();
 Directory.CreateDirectory(Path.Combine(app.Environment.ContentRootPath, "data"));
 app.UseRateLimiter();
+app.UseAuthentication();
+app.UseAuthorization();
 app.UseMiddleware<McpApiKeyMiddleware>();
 app.Use(async (context, next) =>
 {
-    if (context.Request.Path.StartsWithSegments("/control"))
+    if (context.Request.Path.StartsWithSegments("/control") || context.Request.Path.StartsWithSegments("/auth"))
     {
         context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
         context.Response.Headers["X-Frame-Options"] = "DENY";
         context.Response.Headers["X-Content-Type-Options"] = "nosniff";
         context.Response.Headers["Referrer-Policy"] = "no-referrer";
+        context.Response.Headers["Cache-Control"] = "no-store";
     }
 
     await next();
@@ -106,6 +111,7 @@ app.MapGet("/readyz", async (OrchestratorDbContext dbContext, CancellationToken 
         }, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
+app.MapIdentityEndpoints();
 app.MapControlPlaneEndpoints();
 app.MapControlPlaneTaskDetailEndpoints();
 app.MapOperationsEndpoints();

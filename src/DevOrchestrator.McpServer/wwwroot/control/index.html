@@ -21,9 +21,10 @@
         <button class="nav-item" data-view="workers"><span>04</span> Workers</button>
         <button class="nav-item" data-view="webhooks"><span>05</span> Webhooks</button>
         <button class="nav-item" data-view="audit"><span>06</span> Audit</button>
+        <a class="nav-item" href="/control/governance.html"><span>07</span> Governance</a>
       </nav>
       <div class="sidebar-foot">
-        <div class="signal"><span id="health-dot" class="dot"></span><div><strong id="health-label">Disconnected</strong><small id="health-detail">Auditor session required</small></div></div>
+        <div class="signal"><span id="health-dot" class="dot"></span><div><strong id="health-label">Disconnected</strong><small id="health-detail">Human or Auditor session required</small></div></div>
         <button id="disconnect-button" class="ghost compact hidden">Disconnect</button>
       </div>
     </aside>
@@ -118,14 +119,16 @@
   <div id="auth-screen" class="auth-screen">
     <form id="auth-form" class="auth-card">
       <div class="brand-mark large">DO</div>
-      <p class="eyebrow">AUDITOR ACCESS</p>
-      <h2>Open the control plane</h2>
-      <p>Enter the Auditor API key. It is kept only in this browser tab's session storage and sent as <code>X-DevOrchestrator-Key</code>.</p>
+      <p class="eyebrow">CONTROL PLANE ACCESS</p>
+      <h2>Open DevOrchestrator</h2>
+      <p id="identity-note">Use GitHub sign-in for human access, or the Auditor API key as break-glass access.</p>
+      <a id="github-login" class="primary" href="/auth/login?returnUrl=/control/session.html">Sign in with GitHub</a>
+      <div class="muted">or use break-glass machine access</div>
       <label for="auditor-key">Auditor key</label>
       <input id="auditor-key" name="auditor-key" type="password" minlength="24" autocomplete="off" required placeholder="••••••••••••••••••••••••">
       <div id="auth-error" class="alert error hidden"></div>
-      <button class="primary" type="submit">Connect securely</button>
-      <small>Read access and operational actions require the Auditor role.</small>
+      <button class="ghost" type="submit">Connect with Auditor key</button>
+      <small>Human sessions use an HttpOnly server cookie. Machine keys remain separate and are never converted into user sessions.</small>
     </form>
   </div>
 
@@ -136,5 +139,6 @@
   <div id="drawer-scrim" class="drawer-scrim hidden"></div>
 
   <script src="/control/app.js" defer></script>
+  <script src="/control/identity.js" defer></script>
 </body>
 </html>
