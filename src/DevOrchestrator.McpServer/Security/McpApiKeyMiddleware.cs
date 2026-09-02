@@ -14,7 +14,8 @@ public sealed class McpApiKeyMiddleware(
     {
         var isMcp = context.Request.Path.StartsWithSegments("/mcp");
         var isOperational = context.Request.Path.StartsWithSegments("/ops")
-                            || context.Request.Path.StartsWithSegments("/metrics");
+                            || context.Request.Path.StartsWithSegments("/metrics")
+                            || context.Request.Path.StartsWithSegments("/control/api");
         if (!isMcp && !isOperational)
         {
             await next(context);
