@@ -32,9 +32,6 @@ internal static class TaskMapping
             task.LastCommitSha,
             task.PullRequestUrl,
             task.BlockReason,
-            task.LeaseOwner,
-            task.LeaseExpiresAtUtc,
-            task.LastHeartbeatAtUtc,
             task.AcceptanceCriteria.Select(x => new AcceptanceCriterionDto(x.Id, x.Description, x.IsSatisfied)).ToArray(),
             dependencies,
             task.Evidence.OrderBy(x => x.CreatedAtUtc).Select(x => new EvidenceDto(
@@ -51,6 +48,9 @@ internal static class TaskMapping
                 x.FindingsJson,
                 x.CreatedAtUtc)).ToArray(),
             task.CreatedAtUtc,
-            task.UpdatedAtUtc);
+            task.UpdatedAtUtc,
+            task.LeaseOwner,
+            task.LeaseExpiresAtUtc,
+            task.LastHeartbeatAtUtc);
     }
 }

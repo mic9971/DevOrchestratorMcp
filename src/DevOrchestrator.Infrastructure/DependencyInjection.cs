@@ -23,8 +23,7 @@ public static class DependencyInjection
         {
             if (provider == "postgres")
             {
-                options.UseNpgsql(
-                    connectionString
+                options.UseNpgsql(connectionString
                     ?? "Host=localhost;Port=5432;Database=devorchestrator;Username=devorchestrator;Password=devorchestrator");
                 return;
             }
@@ -45,16 +44,16 @@ public static class DependencyInjection
         services.AddScoped<ITaskReadRepository, TaskReadRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IGitHubWebhookDeliveryStore, GitHubWebhookDeliveryStore>();
+        services.AddScoped<IGitHubWebhookInbox, GitHubWebhookInboxStore>();
 
         services.AddSingleton<HttpClient>();
+        services.AddSingleton<IGitHubAccessTokenProvider, GitHubAccessTokenProvider>();
         services.AddSingleton<IGitHubBridgeClient, GitHubBridgeClient>();
 
         return services;
     }
 
-    private static string ResolveSqliteConnectionString(
-        string connectionString,
-        string? contentRootPath)
+    private static string ResolveSqliteConnectionString(string connectionString, string? contentRootPath)
     {
         var builder = new SqliteConnectionStringBuilder(connectionString);
         if (string.IsNullOrWhiteSpace(builder.DataSource)
@@ -64,10 +63,7 @@ public static class DependencyInjection
             return builder.ToString();
         }
 
-        var root = string.IsNullOrWhiteSpace(contentRootPath)
-            ? Directory.GetCurrentDirectory()
-            : contentRootPath;
-
+        var root = string.IsNullOrWhiteSpace(contentRootPath) ? Directory.GetCurrentDirectory() : contentRootPath;
         builder.DataSource = Path.GetFullPath(Path.Combine(root, builder.DataSource));
         return builder.ToString();
     }

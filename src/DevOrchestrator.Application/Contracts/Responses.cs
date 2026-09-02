@@ -39,15 +39,15 @@ public sealed record TaskDto(
     string? LastCommitSha,
     string? PullRequestUrl,
     string? BlockReason,
-    string? LeaseOwner,
-    DateTimeOffset? LeaseExpiresAtUtc,
-    DateTimeOffset? LastHeartbeatAtUtc,
     IReadOnlyList<AcceptanceCriterionDto> AcceptanceCriteria,
     IReadOnlyList<string> DependencyTaskCodes,
     IReadOnlyList<EvidenceDto> Evidence,
     IReadOnlyList<ReviewDto> Reviews,
     DateTimeOffset CreatedAtUtc,
-    DateTimeOffset UpdatedAtUtc);
+    DateTimeOffset UpdatedAtUtc,
+    string? LeaseOwner = null,
+    DateTimeOffset? LeaseExpiresAtUtc = null,
+    DateTimeOffset? LastHeartbeatAtUtc = null);
 
 public sealed record BatchCreateResult(
     int Created,

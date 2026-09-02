@@ -103,5 +103,17 @@ internal static class OrchestratorModel
             entity.Property(x => x.EventName).HasMaxLength(80);
             entity.HasIndex(x => new { x.CompletedAtUtc, x.LeaseExpiresAtUtc });
         });
+
+        modelBuilder.Entity<GitHubWebhookInboxItem>(entity =>
+        {
+            entity.ToTable("github_webhook_inbox");
+            entity.HasKey(x => x.DeliveryId);
+            entity.Property(x => x.DeliveryId).HasMaxLength(120);
+            entity.Property(x => x.EventName).HasMaxLength(80);
+            entity.Property(x => x.Action).HasMaxLength(80);
+            entity.Property(x => x.RepositoryUrl).HasMaxLength(500);
+            entity.Property(x => x.LastError).HasMaxLength(4000);
+            entity.HasIndex(x => new { x.CompletedAtUtc, x.NextAttemptAtUtc, x.LeaseExpiresAtUtc });
+        });
     }
 }

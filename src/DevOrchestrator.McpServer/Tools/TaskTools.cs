@@ -59,35 +59,28 @@ public static class TaskTools
         => ToolResponse<TaskDto?>.From(await service.GetNextAsync(projectKey, cancellationToken));
 
     [McpServerTool(Name = "task_claim_next", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false, UseStructuredContent = true)]
-    [Description("Atomically claim the next task for one Codex worker. Expired InProgress leases may be reclaimed.")]
+    [Description("Claim the next task for one Codex worker. Expired InProgress leases may be reclaimed.")]
     public static async Task<ToolResponse<TaskDto?>> ClaimNextAsync(
         string projectKey,
         [Description("Stable unique id for this Codex worker/process.")] string workerId,
         string? branch,
         string actor,
-        ITaskService service,
+        ITaskLeaseService service,
         ToolAuthorizer authorizer,
         CancellationToken cancellationToken)
     {
         actor = authorizer.RequireAndResolveActor(actor, McpCallerRole.Implementer);
-        return ToolResponse<TaskDto?>.From(
-            await service.ClaimNextAsync(projectKey, workerId, actor, branch, cancellationToken));
+        return ToolResponse<TaskDto?>.From(await service.ClaimNextAsync(projectKey, workerId, actor, branch, cancellationToken));
     }
 
     [McpServerTool(Name = "task_heartbeat", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description("Renew an active task lease. Send periodically while a Codex worker is implementing.")]
     public static async Task<ToolResponse<TaskDto>> HeartbeatAsync(
-        string projectKey,
-        string taskCode,
-        string workerId,
-        string actor,
-        ITaskService service,
-        ToolAuthorizer authorizer,
-        CancellationToken cancellationToken)
+        string projectKey, string taskCode, string workerId, string actor,
+        ITaskLeaseService service, ToolAuthorizer authorizer, CancellationToken cancellationToken)
     {
         actor = authorizer.RequireAndResolveActor(actor, McpCallerRole.Implementer);
-        return ToolResponse<TaskDto>.From(
-            await service.HeartbeatAsync(projectKey, taskCode, workerId, actor, cancellationToken));
+        return ToolResponse<TaskDto>.From(await service.HeartbeatAsync(projectKey, taskCode, workerId, actor, cancellationToken));
     }
 
     [McpServerTool(Name = "task_start", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false, UseStructuredContent = true)]
