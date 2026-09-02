@@ -15,8 +15,7 @@ internal static class TaskMapping
             : task.Constraints.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
         var dependencies = task.Dependencies
-            .Select(x => dependencyCodes is not null &&
-                         dependencyCodes.TryGetValue(x.DependsOnTaskId, out var code)
+            .Select(x => dependencyCodes is not null && dependencyCodes.TryGetValue(x.DependsOnTaskId, out var code)
                 ? code
                 : x.DependsOnTaskId.ToString())
             .ToArray();
@@ -33,29 +32,24 @@ internal static class TaskMapping
             task.LastCommitSha,
             task.PullRequestUrl,
             task.BlockReason,
-            task.AcceptanceCriteria
-                .Select(x => new AcceptanceCriterionDto(x.Id, x.Description, x.IsSatisfied))
-                .ToArray(),
+            task.LeaseOwner,
+            task.LeaseExpiresAtUtc,
+            task.LastHeartbeatAtUtc,
+            task.AcceptanceCriteria.Select(x => new AcceptanceCriterionDto(x.Id, x.Description, x.IsSatisfied)).ToArray(),
             dependencies,
-            task.Evidence
-                .OrderBy(x => x.CreatedAtUtc)
-                .Select(x => new EvidenceDto(
-                    x.Actor,
-                    x.Branch,
-                    x.CommitSha,
-                    x.PullRequestUrl,
-                    x.PayloadJson,
-                    x.CreatedAtUtc))
-                .ToArray(),
-            task.Reviews
-                .OrderBy(x => x.CreatedAtUtc)
-                .Select(x => new ReviewDto(
-                    x.Decision.ToString(),
-                    x.Actor,
-                    x.Summary,
-                    x.FindingsJson,
-                    x.CreatedAtUtc))
-                .ToArray(),
+            task.Evidence.OrderBy(x => x.CreatedAtUtc).Select(x => new EvidenceDto(
+                x.Actor,
+                x.Branch,
+                x.CommitSha,
+                x.PullRequestUrl,
+                x.PayloadJson,
+                x.CreatedAtUtc)).ToArray(),
+            task.Reviews.OrderBy(x => x.CreatedAtUtc).Select(x => new ReviewDto(
+                x.Decision.ToString(),
+                x.Actor,
+                x.Summary,
+                x.FindingsJson,
+                x.CreatedAtUtc)).ToArray(),
             task.CreatedAtUtc,
             task.UpdatedAtUtc);
     }

@@ -18,6 +18,11 @@ public interface IDevelopmentTaskRepository
         Guid projectId,
         CancellationToken cancellationToken);
 
+    Task<DevelopmentTask?> GetClaimCandidateAsync(
+        Guid projectId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken);
+
     Task<IReadOnlyList<DevelopmentTask>> GetDependentsAsync(
         Guid dependsOnTaskId,
         CancellationToken cancellationToken);
@@ -31,6 +36,5 @@ public interface IDevelopmentTaskRepository
         CancellationToken cancellationToken);
 
     void Add(DevelopmentTask task);
-
     void AddRange(IEnumerable<DevelopmentTask> tasks);
 }

@@ -15,6 +15,8 @@ internal sealed class TaskService(
     IUnitOfWork unitOfWork,
     IClock clock) : ITaskService
 {
+    private static readonly TimeSpan WorkerLeaseDuration = TimeSpan.FromMinutes(10);
+
     public async Task<Result<TaskDto>> CreateAsync(
         string projectKey,
         CreateTaskSeed seed,
@@ -76,6 +78,10 @@ internal sealed class TaskService(
             var codes = dependencyTasks.ToDictionary(x => x.Id, x => x.Code);
             return Result<TaskDto>.Success(TaskMapping.Map(task, project.Key, codes));
         }
+        catch (DuplicateKeyException)
+        {
+            return Result<TaskDto>.Failure(OrchestratorErrors.TaskAlreadyExists(code));
+        }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
             return Result<TaskDto>.Failure(OrchestratorErrors.InvalidInput(ex.Message));
@@ -101,11 +107,7 @@ internal sealed class TaskService(
         }
 
         var project = projectResult.Value!;
-
-        var normalizedSeeds = seeds
-            .Select(x => x with { Code = NormalizeCode(x.Code) })
-            .ToArray();
-
+        var normalizedSeeds = seeds.Select(x => x with { Code = NormalizeCode(x.Code) }).ToArray();
         var duplicate = normalizedSeeds
             .GroupBy(x => x.Code, StringComparer.OrdinalIgnoreCase)
             .FirstOrDefault(x => x.Count() > 1);
@@ -172,7 +174,6 @@ internal sealed class TaskService(
                     var dependency = created.TryGetValue(dependencyCode, out var incoming)
                         ? incoming
                         : existingDependencies[dependencyCode];
-
                     task.AddDependency(dependency.Id);
                 }
             }
@@ -181,7 +182,6 @@ internal sealed class TaskService(
             {
                 var task = created[seed.Code];
                 var dependencies = NormalizeDependencies(seed.Dependencies);
-
                 var allDependenciesDone = dependencies.All(code =>
                     existingDependencies.TryGetValue(code, out var existing)
                         ? existing.Status == DevelopmentTaskStatus.Done
@@ -199,12 +199,15 @@ internal sealed class TaskService(
             var allCodes = created.Values
                 .Concat(existingDependencies.Values)
                 .ToDictionary(x => x.Id, x => x.Code);
-
             var mapped = normalizedSeeds
                 .Select(x => TaskMapping.Map(created[x.Code], project.Key, allCodes))
                 .ToArray();
 
             return Result<BatchCreateResult>.Success(new BatchCreateResult(mapped.Length, mapped));
+        }
+        catch (DuplicateKeyException)
+        {
+            return Result<BatchCreateResult>.Failure(OrchestratorErrors.TaskAlreadyExists());
         }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
@@ -212,10 +215,7 @@ internal sealed class TaskService(
         }
     }
 
-    public async Task<Result<TaskDto>> GetAsync(
-        string projectKey,
-        string code,
-        CancellationToken cancellationToken)
+    public async Task<Result<TaskDto>> GetAsync(string projectKey, string code, CancellationToken cancellationToken)
     {
         var found = await FindAsync(projectKey, code, cancellationToken);
         if (found.IsFailure)
@@ -227,10 +227,7 @@ internal sealed class TaskService(
         return Result<TaskDto>.Success(await MapWithDependencyCodesAsync(project, task, cancellationToken));
     }
 
-    public async Task<Result<IReadOnlyList<TaskDto>>> ListAsync(
-        string projectKey,
-        string? status,
-        CancellationToken cancellationToken)
+    public async Task<Result<IReadOnlyList<TaskDto>>> ListAsync(string projectKey, string? status, CancellationToken cancellationToken)
     {
         var projectResult = await GetProjectAsync(projectKey, cancellationToken);
         if (projectResult.IsFailure)
@@ -253,7 +250,6 @@ internal sealed class TaskService(
         var project = projectResult.Value!;
         var items = await tasks.ListAsync(project.Id, parsedStatus, cancellationToken);
         var mapped = new List<TaskDto>(items.Count);
-
         foreach (var task in items)
         {
             mapped.Add(await MapWithDependencyCodesAsync(project, task, cancellationToken));
@@ -262,9 +258,7 @@ internal sealed class TaskService(
         return Result<IReadOnlyList<TaskDto>>.Success(mapped);
     }
 
-    public async Task<Result<TaskDto?>> GetNextAsync(
-        string projectKey,
-        CancellationToken cancellationToken)
+    public async Task<Result<TaskDto?>> GetNextAsync(string projectKey, CancellationToken cancellationToken)
     {
         var projectResult = await GetProjectAsync(projectKey, cancellationToken);
         if (projectResult.IsFailure)
@@ -274,29 +268,71 @@ internal sealed class TaskService(
 
         var project = projectResult.Value!;
         var task = await tasks.GetNextAsync(project.Id, cancellationToken);
+        return task is null
+            ? Result<TaskDto?>.Success(null)
+            : Result<TaskDto?>.Success(await MapWithDependencyCodesAsync(project, task, cancellationToken));
+    }
 
+    public async Task<Result<TaskDto?>> ClaimNextAsync(
+        string projectKey,
+        string workerId,
+        string actor,
+        string? branch,
+        CancellationToken cancellationToken)
+    {
+        var projectResult = await GetProjectAsync(projectKey, cancellationToken);
+        if (projectResult.IsFailure)
+        {
+            return Result<TaskDto?>.Failure(projectResult.Error);
+        }
+
+        var project = projectResult.Value!;
+        var now = clock.UtcNow;
+        var task = await tasks.GetClaimCandidateAsync(project.Id, now, cancellationToken);
         if (task is null)
         {
             return Result<TaskDto?>.Success(null);
         }
 
-        return Result<TaskDto?>.Success(
-            await MapWithDependencyCodesAsync(project, task, cancellationToken));
+        try
+        {
+            task.Claim(actor, workerId, branch, now, WorkerLeaseDuration);
+            await unitOfWork.SaveChangesAsync(cancellationToken);
+            return Result<TaskDto?>.Success(await MapWithDependencyCodesAsync(project, task, cancellationToken));
+        }
+        catch (ConcurrencyConflictException ex)
+        {
+            return Result<TaskDto?>.Failure(OrchestratorErrors.ConcurrencyConflict(ex.Message));
+        }
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or ArgumentOutOfRangeException)
+        {
+            return Result<TaskDto?>.Failure(OrchestratorErrors.InvalidState(ex.Message));
+        }
     }
 
-    public async Task<Result<TaskDto>> StartAsync(
+    public Task<Result<TaskDto>> HeartbeatAsync(
+        string projectKey,
+        string code,
+        string workerId,
+        string actor,
+        CancellationToken cancellationToken)
+        => MutateAsync(
+            projectKey,
+            code,
+            (task, now) => task.Heartbeat(actor, workerId, now, WorkerLeaseDuration),
+            cancellationToken);
+
+    public Task<Result<TaskDto>> StartAsync(
         string projectKey,
         string code,
         string actor,
         string? branch,
         CancellationToken cancellationToken)
-    {
-        return await MutateAsync(
+        => MutateAsync(
             projectKey,
             code,
-            (task, now) => task.Start(actor, branch, now),
+            (task, now) => task.Claim(actor, actor, branch, now, WorkerLeaseDuration),
             cancellationToken);
-    }
 
     public async Task<Result<TaskDto>> AddEvidenceAsync(
         string projectKey,
@@ -316,69 +352,21 @@ internal sealed class TaskService(
         return await MutateAsync(
             projectKey,
             code,
-            (task, now) => task.AddEvidence(
-                actor,
-                evidence.Branch,
-                evidence.CommitSha,
-                evidence.PullRequestUrl,
-                payload,
-                now),
+            (task, now) => task.AddEvidence(actor, evidence.Branch, evidence.CommitSha, evidence.PullRequestUrl, payload, now),
             cancellationToken);
     }
 
-    public async Task<Result<TaskDto>> SubmitForReviewAsync(
-        string projectKey,
-        string code,
-        string actor,
-        CancellationToken cancellationToken)
-    {
-        return await MutateAsync(
-            projectKey,
-            code,
-            (task, now) => task.SubmitForReview(actor, now),
-            cancellationToken);
-    }
+    public Task<Result<TaskDto>> SubmitForReviewAsync(string projectKey, string code, string actor, CancellationToken cancellationToken)
+        => MutateAsync(projectKey, code, (task, now) => task.SubmitForReview(actor, now), cancellationToken);
 
-    public async Task<Result<TaskDto>> BlockAsync(
-        string projectKey,
-        string code,
-        string reason,
-        string actor,
-        CancellationToken cancellationToken)
-    {
-        return await MutateAsync(
-            projectKey,
-            code,
-            (task, now) => task.Block(actor, reason, now),
-            cancellationToken);
-    }
+    public Task<Result<TaskDto>> BlockAsync(string projectKey, string code, string reason, string actor, CancellationToken cancellationToken)
+        => MutateAsync(projectKey, code, (task, now) => task.Block(actor, reason, now), cancellationToken);
 
-    public async Task<Result<TaskDto>> ResumeAsync(
-        string projectKey,
-        string code,
-        string actor,
-        CancellationToken cancellationToken)
-    {
-        return await MutateAsync(
-            projectKey,
-            code,
-            (task, now) => task.ResumeFromBlocked(actor, now),
-            cancellationToken);
-    }
+    public Task<Result<TaskDto>> ResumeAsync(string projectKey, string code, string actor, CancellationToken cancellationToken)
+        => MutateAsync(projectKey, code, (task, now) => task.ResumeFromBlocked(actor, now), cancellationToken);
 
-    public async Task<Result<TaskDto>> ReopenAsync(
-        string projectKey,
-        string code,
-        string reason,
-        string actor,
-        CancellationToken cancellationToken)
-    {
-        return await MutateAsync(
-            projectKey,
-            code,
-            (task, now) => task.Reopen(actor, reason, now),
-            cancellationToken);
-    }
+    public Task<Result<TaskDto>> ReopenAsync(string projectKey, string code, string reason, string actor, CancellationToken cancellationToken)
+        => MutateAsync(projectKey, code, (task, now) => task.Reopen(actor, reason, now), cancellationToken);
 
     private async Task<Result<TaskDto>> MutateAsync(
         string projectKey,
@@ -393,19 +381,17 @@ internal sealed class TaskService(
         }
 
         var (project, task) = found.Value!;
-
         try
         {
             mutation(task, clock.UtcNow);
             await unitOfWork.SaveChangesAsync(cancellationToken);
-            return Result<TaskDto>.Success(
-                await MapWithDependencyCodesAsync(project, task, cancellationToken));
+            return Result<TaskDto>.Success(await MapWithDependencyCodesAsync(project, task, cancellationToken));
         }
         catch (ConcurrencyConflictException ex)
         {
             return Result<TaskDto>.Failure(OrchestratorErrors.ConcurrencyConflict(ex.Message));
         }
-        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
+        catch (Exception ex) when (ex is ArgumentException or InvalidOperationException or ArgumentOutOfRangeException)
         {
             return Result<TaskDto>.Failure(OrchestratorErrors.InvalidState(ex.Message));
         }
@@ -425,28 +411,21 @@ internal sealed class TaskService(
         var project = projectResult.Value!;
         var normalizedCode = NormalizeCode(code);
         var task = await tasks.GetByCodeAsync(project.Id, normalizedCode, cancellationToken);
-
         return task is null
             ? Result<(TargetProject, DevelopmentTask)>.Failure(OrchestratorErrors.TaskNotFound(normalizedCode))
             : Result<(TargetProject, DevelopmentTask)>.Success((project, task));
     }
 
-    private async Task<Result<TargetProject>> GetProjectAsync(
-        string projectKey,
-        CancellationToken cancellationToken)
+    private async Task<Result<TargetProject>> GetProjectAsync(string projectKey, CancellationToken cancellationToken)
     {
         var key = projectKey.Trim().ToLowerInvariant();
         var project = await projects.GetByKeyAsync(key, cancellationToken);
-
         return project is null
             ? Result<TargetProject>.Failure(OrchestratorErrors.ProjectNotFound(key))
             : Result<TargetProject>.Success(project);
     }
 
-    private async Task<TaskDto> MapWithDependencyCodesAsync(
-        TargetProject project,
-        DevelopmentTask task,
-        CancellationToken cancellationToken)
+    private async Task<TaskDto> MapWithDependencyCodesAsync(TargetProject project, DevelopmentTask task, CancellationToken cancellationToken)
     {
         if (task.Dependencies.Count == 0)
         {
@@ -455,15 +434,11 @@ internal sealed class TaskService(
 
         var ids = task.Dependencies.Select(x => x.DependsOnTaskId).ToArray();
         var allTasks = await tasks.ListAsync(project.Id, null, cancellationToken);
-        var codeById = allTasks
-            .Where(x => ids.Contains(x.Id))
-            .ToDictionary(x => x.Id, x => x.Code);
-
+        var codeById = allTasks.Where(x => ids.Contains(x.Id)).ToDictionary(x => x.Id, x => x.Code);
         return TaskMapping.Map(task, project.Key, codeById);
     }
 
-    private static string NormalizeCode(string code)
-        => code.Trim().ToUpperInvariant();
+    private static string NormalizeCode(string code) => code.Trim().ToUpperInvariant();
 
     private static string[] NormalizeDependencies(string[]? dependencies)
         => dependencies?
@@ -474,57 +449,34 @@ internal sealed class TaskService(
            ?? [];
 
     private static TaskPriority ParsePriority(string priority)
-        => Enum.TryParse<TaskPriority>(priority, true, out var value)
-            ? value
-            : TaskPriority.Normal;
+        => Enum.TryParse<TaskPriority>(priority, true, out var value) ? value : TaskPriority.Normal;
 
     private static string? ValidateBatchGraph(IReadOnlyList<CreateTaskSeed> seeds)
     {
-        var incoming = seeds
-            .Select(x => x.Code)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
+        var incoming = seeds.Select(x => x.Code).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var graph = seeds.ToDictionary(
             x => x.Code,
-            x => NormalizeDependencies(x.Dependencies)
-                .Where(incoming.Contains)
-                .ToArray(),
+            x => NormalizeDependencies(x.Dependencies).Where(incoming.Contains).ToArray(),
             StringComparer.OrdinalIgnoreCase);
-
         var visiting = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         bool HasCycle(string node)
         {
-            if (visiting.Contains(node))
-            {
-                return true;
-            }
-
-            if (!visited.Add(node))
-            {
-                return false;
-            }
-
+            if (visiting.Contains(node)) return true;
+            if (!visited.Add(node)) return false;
             visiting.Add(node);
             foreach (var dependency in graph[node])
             {
-                if (HasCycle(dependency))
-                {
-                    return true;
-                }
+                if (HasCycle(dependency)) return true;
             }
-
             visiting.Remove(node);
             return false;
         }
 
         foreach (var node in graph.Keys)
         {
-            if (HasCycle(node))
-            {
-                return $"Dependency cycle detected involving task '{node}'.";
-            }
+            if (HasCycle(node)) return $"Dependency cycle detected involving task '{node}'.";
         }
 
         return null;

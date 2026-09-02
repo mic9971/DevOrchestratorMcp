@@ -16,6 +16,9 @@ public static class OrchestratorErrors
     public static Error TaskAlreadyExists(string code)
         => new("task.already_exists", $"Task '{code}' already exists.");
 
+    public static Error TaskAlreadyExists()
+        => new("task.already_exists", "One or more task codes were created concurrently and already exist.");
+
     public static Error DependencyNotFound(string code)
         => new("task.dependency_not_found", $"Dependency task '{code}' was not found.");
 
