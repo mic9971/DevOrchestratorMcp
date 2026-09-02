@@ -21,6 +21,8 @@ public sealed class OrchestratorDbContext(DbContextOptions<OrchestratorDbContext
 
     public DbSet<TaskEvent> TaskEvents => Set<TaskEvent>();
 
+    public DbSet<GitHubWebhookDelivery> GitHubWebhookDeliveries => Set<GitHubWebhookDelivery>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<TargetProject>(entity =>
@@ -130,6 +132,15 @@ public sealed class OrchestratorDbContext(DbContextOptions<OrchestratorDbContext
             entity.HasIndex(x => new { x.TaskId, x.CreatedAtUtc });
             entity.Property(x => x.EventType).HasMaxLength(120);
             entity.Property(x => x.Actor).HasMaxLength(120);
+        });
+
+        modelBuilder.Entity<GitHubWebhookDelivery>(entity =>
+        {
+            entity.ToTable("github_webhook_deliveries");
+            entity.HasKey(x => x.DeliveryId);
+            entity.Property(x => x.DeliveryId).HasMaxLength(120);
+            entity.Property(x => x.EventName).HasMaxLength(80);
+            entity.HasIndex(x => x.ReceivedAtUtc);
         });
     }
 }
