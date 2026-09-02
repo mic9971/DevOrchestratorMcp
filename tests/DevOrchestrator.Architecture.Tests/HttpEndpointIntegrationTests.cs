@@ -13,7 +13,7 @@ namespace DevOrchestrator.Architecture.Tests;
 public sealed class HttpEndpointIntegrationTests
 {
     [Fact]
-    public async Task Health_readiness_mcp_auth_and_webhook_signature_are_enforced_over_http()
+    public async Task Health_readiness_mcp_ops_auth_and_webhook_signature_are_enforced_over_http()
     {
         var databaseDirectory = Path.Combine(AppContext.BaseDirectory, "integration-data");
         Directory.CreateDirectory(databaseDirectory);
@@ -35,6 +35,25 @@ public sealed class HttpEndpointIntegrationTests
 
             var mcp = await client.GetAsync("/mcp");
             Assert.Equal(HttpStatusCode.Unauthorized, mcp.StatusCode);
+
+            var opsUnauthorized = await client.GetAsync("/ops/status");
+            Assert.Equal(HttpStatusCode.Unauthorized, opsUnauthorized.StatusCode);
+
+            using var implementerOps = new HttpRequestMessage(HttpMethod.Get, "/ops/status");
+            implementerOps.Headers.Add("X-DevOrchestrator-Key", "implementer-key-at-least-24-characters");
+            var opsForbidden = await client.SendAsync(implementerOps);
+            Assert.Equal(HttpStatusCode.Forbidden, opsForbidden.StatusCode);
+
+            using var auditorOps = new HttpRequestMessage(HttpMethod.Get, "/ops/status");
+            auditorOps.Headers.Add("X-DevOrchestrator-Key", "auditor-key-at-least-24-characters");
+            var ops = await client.SendAsync(auditorOps);
+            Assert.Equal(HttpStatusCode.OK, ops.StatusCode);
+
+            using var metricsRequest = new HttpRequestMessage(HttpMethod.Get, "/metrics");
+            metricsRequest.Headers.Add("X-DevOrchestrator-Key", "auditor-key-at-least-24-characters");
+            var metrics = await client.SendAsync(metricsRequest);
+            Assert.Equal(HttpStatusCode.OK, metrics.StatusCode);
+            Assert.Contains("devorchestrator_active_workers", await metrics.Content.ReadAsStringAsync());
 
             using var webhookRequest = new HttpRequestMessage(HttpMethod.Post, "/webhooks/github")
             {
