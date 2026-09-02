@@ -17,7 +17,6 @@ public sealed class TaskEvidence
         string payloadJson,
         DateTimeOffset createdAtUtc)
     {
-        Id = Guid.NewGuid();
         TaskId = taskId;
         Actor = Guard.NotBlank(actor, nameof(actor), 120);
         Branch = Guard.NotBlank(branch, nameof(branch), 300);
