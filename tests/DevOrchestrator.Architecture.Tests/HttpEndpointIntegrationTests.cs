@@ -13,7 +13,7 @@ namespace DevOrchestrator.Architecture.Tests;
 public sealed class HttpEndpointIntegrationTests
 {
     [Fact]
-    public async Task Health_readiness_mcp_ops_auth_and_webhook_signature_are_enforced_over_http()
+    public async Task Health_readiness_control_plane_mcp_ops_auth_and_webhook_signature_are_enforced_over_http()
     {
         var databaseDirectory = Path.Combine(AppContext.BaseDirectory, "integration-data");
         Directory.CreateDirectory(databaseDirectory);
@@ -32,6 +32,26 @@ public sealed class HttpEndpointIntegrationTests
 
             var ready = await client.GetAsync("/readyz");
             Assert.Equal(HttpStatusCode.OK, ready.StatusCode);
+
+            var control = await client.GetAsync("/control/index.html");
+            Assert.Equal(HttpStatusCode.OK, control.StatusCode);
+            Assert.Contains("DevOrchestrator Control Plane", await control.Content.ReadAsStringAsync());
+            Assert.True(control.Headers.TryGetValues("Content-Security-Policy", out var csp));
+            Assert.Contains("default-src 'self'", csp.Single());
+
+            var controlUnauthorized = await client.GetAsync("/control/api/dashboard");
+            Assert.Equal(HttpStatusCode.Unauthorized, controlUnauthorized.StatusCode);
+
+            using var implementerControl = new HttpRequestMessage(HttpMethod.Get, "/control/api/dashboard");
+            implementerControl.Headers.Add("X-DevOrchestrator-Key", "implementer-key-at-least-24-characters");
+            var controlForbidden = await client.SendAsync(implementerControl);
+            Assert.Equal(HttpStatusCode.Forbidden, controlForbidden.StatusCode);
+
+            using var auditorControl = new HttpRequestMessage(HttpMethod.Get, "/control/api/dashboard");
+            auditorControl.Headers.Add("X-DevOrchestrator-Key", "auditor-key-at-least-24-characters");
+            var controlDashboard = await client.SendAsync(auditorControl);
+            Assert.Equal(HttpStatusCode.OK, controlDashboard.StatusCode);
+            Assert.Contains("projects", await controlDashboard.Content.ReadAsStringAsync());
 
             var mcp = await client.GetAsync("/mcp");
             Assert.Equal(HttpStatusCode.Unauthorized, mcp.StatusCode);
