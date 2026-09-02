@@ -112,6 +112,7 @@ public sealed class OrchestratorDbContext(DbContextOptions<OrchestratorDbContext
         {
             entity.ToTable("task_evidence");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.Property(x => x.Actor).HasMaxLength(120);
             entity.Property(x => x.Branch).HasMaxLength(300);
             entity.Property(x => x.CommitSha).HasMaxLength(120);
@@ -122,6 +123,7 @@ public sealed class OrchestratorDbContext(DbContextOptions<OrchestratorDbContext
         {
             entity.ToTable("task_reviews");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.Property(x => x.Actor).HasMaxLength(120);
             entity.Property(x => x.Summary).HasMaxLength(5000);
         });
@@ -130,6 +132,7 @@ public sealed class OrchestratorDbContext(DbContextOptions<OrchestratorDbContext
         {
             entity.ToTable("task_events");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => new { x.TaskId, x.CreatedAtUtc });
             entity.Property(x => x.EventType).HasMaxLength(120);
             entity.Property(x => x.Actor).HasMaxLength(120);
