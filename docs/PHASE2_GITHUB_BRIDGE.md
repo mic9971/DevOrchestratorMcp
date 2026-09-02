@@ -79,6 +79,8 @@ A review is a GitHub issue comment containing:
 
 `decision` supports `Pass` and `ChangesRequested`.
 
+For Phase 2, a review contract is trusted only when the GitHub comment author is the same GitHub user that created the Plan Issue. This blocks arbitrary commenters on a public repository from approving tasks. Team reviewer allow-lists belong in a later phase.
+
 ### P2.2 GitHub API adapter
 
 Add an Application abstraction and Infrastructure implementation using `HttpClient`.
@@ -124,13 +126,14 @@ This allows the same GitHub issue to be imported repeatedly without duplicating 
 
 `bridge_sync_reviews`:
 
-1. Fetch issue comments.
+1. Fetch the Plan Issue and its comments.
 2. Parse valid review contracts.
-3. Consider only tasks currently `ReadyForReview`.
-4. Ignore comments older than the task's latest `UpdatedAtUtc` (prevents an old review from applying after a new implementation iteration).
-5. Use the latest applicable review comment per task.
-6. Apply it through `IReviewService` using `github:{comment-author}` as actor.
-7. Return applied / ignored / invalid counts.
+3. Ignore review contracts whose comment author does not match the Plan Issue author.
+4. Consider only tasks currently `ReadyForReview`.
+5. Ignore comments older than the task's latest submission timestamp. The task timestamp is normalized to GitHub's one-second precision so a legitimate comment in the same second is not lost.
+6. Use the latest applicable review comment per task.
+7. Apply it through `IReviewService` using `github:{comment-author}` as actor.
+8. Return applied / ignored / invalid counts.
 
 This makes repeated sync calls naturally idempotent without adding a new persistence table in Phase 2.
 
@@ -141,7 +144,7 @@ Add:
 - `bridge_import_plan_issue(projectKey, issueNumber)`
 - `bridge_sync_reviews(projectKey, issueNumber)`
 
-Both tools are safe for the Codex allow-list because they cannot invent an orchestrator plan/review themselves; they only consume GitHub-authored contracts.
+Both tools are safe for the Codex allow-list because they cannot invent an orchestrator plan/review through MCP; they only consume GitHub-authored contracts. For strict separation of duties, do not give Codex GitHub Issue comment write credentials.
 
 ### P2.7 Configuration
 
@@ -184,6 +187,7 @@ Never commit a token.
 - Automatically commenting back to GitHub from the MCP server.
 - PostgreSQL migration.
 - Multi-tenant authorization.
+- Team/multi-user reviewer allow-lists.
 
 Those belong in Phase 3 after the bridge POC is proven.
 
@@ -195,7 +199,7 @@ Phase 2 is done when:
 2. Codex can import the issue through MCP and receive the first ready task.
 3. Re-importing the same plan does not duplicate tasks.
 4. Codex can submit implementation evidence and move a task to `ReadyForReview`.
-5. A valid GitHub review contract can move the task to `Done` or `ChangesRequested`.
-6. Re-syncing the same comments has no duplicate state transition.
+5. A valid review contract authored by the Plan Issue owner can move the task to `Done` or `ChangesRequested`.
+6. Old, foreign-author, and duplicate review comments cannot cause a duplicate or unauthorized state transition.
 7. `dotnet build -c Release` succeeds with zero errors.
 8. All domain, application/bridge, and architecture tests pass in GitHub Actions.
