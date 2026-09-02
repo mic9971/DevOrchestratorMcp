@@ -1,14 +1,36 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: devorchestrator
+      POSTGRES_USER: devorchestrator
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-devorchestrator}"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U devorchestrator -d devorchestrator"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
   dev-orchestrator:
     build:
       context: .
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "5058:8080"
-    volumes:
-      - orchestrator-data:/app/data
     environment:
-      ConnectionStrings__Orchestrator: "Data Source=/app/data/dev-orchestrator.db"
-      AllowedHosts: "localhost;127.0.0.1"
+      Database__Provider: postgres
+      ConnectionStrings__Orchestrator: "Host=postgres;Port=5432;Database=devorchestrator;Username=devorchestrator;Password=${POSTGRES_PASSWORD:-devorchestrator}"
+      Security__RequireAuthentication: "true"
+      Security__ArchitectKey: "${DEVORCHESTRATOR_ARCHITECT_KEY}"
+      Security__ImplementerKey: "${DEVORCHESTRATOR_IMPLEMENTER_KEY}"
+      Security__AuditorKey: "${DEVORCHESTRATOR_AUDITOR_KEY}"
+      GitHub__Token: "${GITHUB_TOKEN}"
+      GitHub__WebhookSecret: "${GITHUB_WEBHOOK_SECRET}"
+      AllowedHosts: "${DEVORCHESTRATOR_ALLOWED_HOSTS:-localhost;127.0.0.1}"
 
 volumes:
-  orchestrator-data:
+  postgres-data:
