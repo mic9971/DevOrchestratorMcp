@@ -196,7 +196,8 @@ internal sealed class TaskService(
             projectKey,
             code,
             (task, now) => task.Claim(actor, actor, branch, now, CompatibilityLeaseDuration),
-            cancellationToken);
+            cancellationToken,
+            requireActiveProject: true);
 
     public async Task<Result<TaskDto>> AddEvidenceAsync(
         string projectKey, string code, EvidenceInput evidence, string actor, CancellationToken cancellationToken)
@@ -225,11 +226,22 @@ internal sealed class TaskService(
         => MutateAsync(projectKey, code, (task, now) => task.Reopen(actor, reason, now), cancellationToken);
 
     private async Task<Result<TaskDto>> MutateAsync(
-        string projectKey, string code, Action<DevelopmentTask, DateTimeOffset> mutation, CancellationToken cancellationToken)
+        string projectKey,
+        string code,
+        Action<DevelopmentTask, DateTimeOffset> mutation,
+        CancellationToken cancellationToken,
+        bool requireActiveProject = false)
     {
         var found = await FindAsync(projectKey, code, cancellationToken);
         if (found.IsFailure) return Result<TaskDto>.Failure(found.Error);
         var (project, task) = found.Value!;
+
+        if (requireActiveProject && !project.IsActive)
+        {
+            return Result<TaskDto>.Failure(
+                OrchestratorErrors.InvalidState($"Project '{project.Key}' is paused; new task starts are disabled."));
+        }
+
         try
         {
             mutation(task, clock.UtcNow);

@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>DevOrchestrator Control Plane</title>
+  <link rel="stylesheet" href="/control/app.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <a class="brand" href="/control" aria-label="DevOrchestrator Control Plane">
+        <span class="brand-mark">DO</span>
+        <span><strong>DevOrchestrator</strong><small>Control Plane</small></span>
+      </a>
+      <nav class="nav" aria-label="Control plane sections">
+        <button class="nav-item active" data-view="overview"><span>01</span> Overview</button>
+        <button class="nav-item" data-view="projects"><span>02</span> Projects</button>
+        <button class="nav-item" data-view="tasks"><span>03</span> Tasks</button>
+        <button class="nav-item" data-view="workers"><span>04</span> Workers</button>
+        <button class="nav-item" data-view="webhooks"><span>05</span> Webhooks</button>
+        <button class="nav-item" data-view="audit"><span>06</span> Audit</button>
+      </nav>
+      <div class="sidebar-foot">
+        <div class="signal"><span id="health-dot" class="dot"></span><div><strong id="health-label">Disconnected</strong><small id="health-detail">Auditor session required</small></div></div>
+        <button id="disconnect-button" class="ghost compact hidden">Disconnect</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">ENGINEERING ORCHESTRATION</p>
+          <h1 id="page-title">Overview</h1>
+        </div>
+        <div class="top-actions">
+          <span id="last-refresh" class="muted"></span>
+          <button id="refresh-button" class="ghost">Refresh</button>
+        </div>
+      </header>
+
+      <div id="global-error" class="alert error hidden" role="alert"></div>
+
+      <section id="view-overview" class="view active" aria-labelledby="page-title">
+        <div id="overview-cards" class="metric-grid skeleton-grid"></div>
+        <div class="split-grid">
+          <article class="panel">
+            <div class="panel-head"><div><p class="eyebrow">TASK PIPELINE</p><h2>Execution state</h2></div></div>
+            <div id="pipeline" class="pipeline"></div>
+          </article>
+          <article class="panel">
+            <div class="panel-head"><div><p class="eyebrow">RUNTIME</p><h2>Worker leases</h2></div><button class="text-button" data-jump="workers">Inspect</button></div>
+            <div id="overview-workers" class="list"></div>
+          </article>
+        </div>
+        <article class="panel">
+          <div class="panel-head"><div><p class="eyebrow">PROJECT HEALTH</p><h2>Registered repositories</h2></div><button class="text-button" data-jump="projects">View all</button></div>
+          <div id="overview-projects" class="project-strip"></div>
+        </article>
+      </section>
+
+      <section id="view-projects" class="view">
+        <article class="panel full">
+          <div class="panel-head"><div><p class="eyebrow">REGISTRY</p><h2>Projects</h2></div><span id="project-count" class="pill"></span></div>
+          <div class="table-wrap"><table><thead><tr><th>Project</th><th>Repository</th><th>Tasks</th><th>Active work</th><th>State</th><th></th></tr></thead><tbody id="projects-table"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="view-tasks" class="view">
+        <article class="panel full">
+          <div class="panel-head stack-mobile">
+            <div><p class="eyebrow">WORK QUEUE</p><h2>Tasks</h2></div>
+            <div class="filters">
+              <select id="task-project-filter" aria-label="Filter tasks by project"><option value="">All projects</option></select>
+              <select id="task-status-filter" aria-label="Filter tasks by status">
+                <option value="">All statuses</option><option>Draft</option><option>Ready</option><option>InProgress</option><option>ReadyForReview</option><option>Done</option><option>ChangesRequested</option><option>Blocked</option><option>Cancelled</option>
+              </select>
+            </div>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>Task</th><th>Project</th><th>Status</th><th>Priority</th><th>Worker / Branch</th><th>Updated</th><th></th></tr></thead><tbody id="tasks-table"></tbody></table></div>
+          <div class="pager"><button id="tasks-prev" class="ghost compact">Previous</button><span id="tasks-page" class="muted"></span><button id="tasks-next" class="ghost compact">Next</button></div>
+        </article>
+      </section>
+
+      <section id="view-workers" class="view">
+        <article class="panel full">
+          <div class="panel-head"><div><p class="eyebrow">MULTI-WORKER RUNTIME</p><h2>Leases & heartbeats</h2></div><span id="worker-count" class="pill"></span></div>
+          <div class="table-wrap"><table><thead><tr><th>Worker</th><th>Claimed task</th><th>Branch</th><th>Heartbeat</th><th>Lease</th><th></th></tr></thead><tbody id="workers-table"></tbody></table></div>
+          <div id="workers-empty" class="empty hidden">No active or expired worker leases.</div>
+        </article>
+      </section>
+
+      <section id="view-webhooks" class="view">
+        <article class="panel full">
+          <div class="panel-head stack-mobile">
+            <div><p class="eyebrow">GITHUB BRIDGE</p><h2>Webhook inbox</h2></div>
+            <select id="webhook-state-filter" aria-label="Filter webhook state"><option value="pending">Pending</option><option value="retrying">Retrying</option><option value="completed">Completed</option><option value="all">All</option></select>
+          </div>
+          <div class="table-wrap"><table><thead><tr><th>Delivery</th><th>Event</th><th>Issue</th><th>Attempts</th><th>Received</th><th>State</th><th></th></tr></thead><tbody id="webhooks-table"></tbody></table></div>
+          <div class="pager"><button id="webhooks-prev" class="ghost compact">Previous</button><span id="webhooks-page" class="muted"></span><button id="webhooks-next" class="ghost compact">Next</button></div>
+        </article>
+      </section>
+
+      <section id="view-audit" class="view">
+        <article class="panel full">
+          <div class="panel-head stack-mobile">
+            <div><p class="eyebrow">IMMUTABLE HISTORY</p><h2>Task audit events</h2></div>
+            <div class="filters"><select id="audit-project-filter" aria-label="Filter audit by project"><option value="">All projects</option></select><input id="audit-task-filter" placeholder="Task code" aria-label="Filter audit by task code"></div>
+          </div>
+          <div id="audit-list" class="timeline"></div>
+          <div class="pager"><button id="audit-prev" class="ghost compact">Previous</button><span id="audit-page" class="muted"></span><button id="audit-next" class="ghost compact">Next</button></div>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <div id="auth-screen" class="auth-screen">
+    <form id="auth-form" class="auth-card">
+      <div class="brand-mark large">DO</div>
+      <p class="eyebrow">AUDITOR ACCESS</p>
+      <h2>Open the control plane</h2>
+      <p>Enter the Auditor API key. It is kept only in this browser tab's session storage and sent as <code>X-DevOrchestrator-Key</code>.</p>
+      <label for="auditor-key">Auditor key</label>
+      <input id="auditor-key" name="auditor-key" type="password" minlength="24" autocomplete="off" required placeholder="••••••••••••••••••••••••">
+      <div id="auth-error" class="alert error hidden"></div>
+      <button class="primary" type="submit">Connect securely</button>
+      <small>Read access and operational actions require the Auditor role.</small>
+    </form>
+  </div>
+
+  <aside id="task-drawer" class="drawer" aria-hidden="true">
+    <div class="drawer-head"><div><p class="eyebrow">TASK DETAIL</p><h2 id="drawer-title">Task</h2></div><button id="drawer-close" class="ghost compact" aria-label="Close task details">Close</button></div>
+    <div id="drawer-body" class="drawer-body"></div>
+  </aside>
+  <div id="drawer-scrim" class="drawer-scrim hidden"></div>
+
+  <script src="/control/app.js" defer></script>
+</body>
+</html>

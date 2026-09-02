@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 using DevOrchestrator.Application;
 using DevOrchestrator.Infrastructure;
 using DevOrchestrator.Infrastructure.Persistence;
+using DevOrchestrator.McpServer.ControlPlane;
 using DevOrchestrator.McpServer.Operations;
 using DevOrchestrator.McpServer.Security;
 using DevOrchestrator.McpServer.Webhooks;
@@ -76,7 +77,21 @@ var app = builder.Build();
 Directory.CreateDirectory(Path.Combine(app.Environment.ContentRootPath, "data"));
 app.UseRateLimiter();
 app.UseMiddleware<McpApiKeyMiddleware>();
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/control"))
+    {
+        context.Response.Headers["Content-Security-Policy"] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'";
+        context.Response.Headers["X-Frame-Options"] = "DENY";
+        context.Response.Headers["X-Content-Type-Options"] = "nosniff";
+        context.Response.Headers["Referrer-Policy"] = "no-referrer";
+    }
 
+    await next();
+});
+app.UseStaticFiles();
+
+app.MapGet("/", () => Results.Redirect("/control"));
 app.MapGet("/healthz", () => Results.Ok(new { status = "ok", service = "DevOrchestratorMcp" }));
 app.MapGet("/readyz", async (OrchestratorDbContext dbContext, CancellationToken cancellationToken) =>
 {
@@ -91,6 +106,8 @@ app.MapGet("/readyz", async (OrchestratorDbContext dbContext, CancellationToken 
         }, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
+app.MapControlPlaneEndpoints();
+app.MapControlPlaneTaskDetailEndpoints();
 app.MapOperationsEndpoints();
 app.MapGitHubWebhook().RequireRateLimiting("webhook");
 app.MapMcp("/mcp").RequireRateLimiting("mcp");

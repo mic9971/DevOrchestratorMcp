@@ -13,6 +13,7 @@ The MCP server is deliberately **not** an AI agent. It stores project/task state
 - .NET 8 / ASP.NET Core
 - Official `ModelContextProtocol.AspNetCore` C# SDK
 - Streamable HTTP MCP endpoint
+- Built-in dependency-free web control plane for operators
 - SQLite for zero-infrastructure local development
 - PostgreSQL for shared/production deployment
 - Versioned EF Core migrations with an explicit migration process
@@ -114,6 +115,7 @@ ASPNETCORE_URLS=http://127.0.0.1:5058 dotnet run --project src/DevOrchestrator.M
 Endpoints:
 
 ```text
+Control:   http://127.0.0.1:5058/control
 MCP:       http://127.0.0.1:5058/mcp
 Liveness:  http://127.0.0.1:5058/healthz
 Readiness: http://127.0.0.1:5058/readyz
@@ -122,7 +124,9 @@ Ops:       http://127.0.0.1:5058/ops/status
 Metrics:   http://127.0.0.1:5058/metrics
 ```
 
-`/readyz` returns not-ready when the database has pending migrations. Normal MCP startup never performs DDL. `/ops/*` and `/metrics` require the Auditor key when authentication is enabled.
+`/readyz` returns not-ready when the database has pending migrations. Normal MCP startup never performs DDL. `/ops/*`, `/metrics`, and `/control/api/*` require the Auditor key when authentication is enabled.
+
+The `/control` shell itself is static so the browser can render the Auditor login screen. The key is retained only in browser `sessionStorage` and is sent as `X-DevOrchestrator-Key`; no project/task data is returned before server-side Auditor authorization succeeds.
 
 ## Codex configuration
 
@@ -166,7 +170,7 @@ GitHub__PrivateKeyPem=...
 
 `GitHub__Token` / `GITHUB_TOKEN` remains a compatibility fallback.
 
-Never commit credentials. Serve remote MCP/webhook endpoints behind HTTPS.
+Never commit credentials. Serve remote MCP/webhook/control-plane endpoints behind HTTPS.
 
 ## Persistence and deployment
 
@@ -186,6 +190,18 @@ Built-in endpoint limits protect the control plane:
 - `/mcp`: 120 requests/minute
 - `/webhooks/github`: 300 requests/minute
 
+## Web control plane
+
+The built-in `/control` UI has six operator views:
+
+```text
+Overview -> Projects -> Tasks -> Workers -> Webhooks -> Audit
+```
+
+Task inspection includes acceptance criteria, dependencies, evidence, reviews, recent events, Git branch/commit/PR metadata and lease ownership. List APIs are no-tracking, directly projected and paginated; task detail history is bounded.
+
+The UI deliberately reuses existing privileged `/ops/*` mutations instead of introducing a parallel write model.
+
 ## Production operations
 
 Auditor-authenticated endpoints:
@@ -203,13 +219,14 @@ The metrics surface exports active workers, active/expired task leases and pendi
 
 ## Verification
 
-Normal PR CI now proves more than compilation:
+Normal PR CI proves more than compilation:
 
 ```text
 .NET restore/build/test
 PostgreSQL 17 migrations
 Docker image build and real startup
 health/readiness
+control-plane static asset + Auditor API auth
 Auditor-only ops/metrics
 service restart recovery
 PostgreSQL pg_dump -> fresh database pg_restore
@@ -227,6 +244,7 @@ An explicit `real-github-e2e` workflow creates real GitHub Issue/comment contrac
 - `docs/PHASE4_DATABASE_FIRST.md`
 - `docs/PHASE5_MULTIWORKER_RUNTIME.md`
 - `docs/PHASE6_PRODUCTION_PROOF.md`
+- `docs/PHASE7_CONTROL_PLANE.md`
 - `docs/CODEX_SETUP.md`
 - `AGENTS.md`
 - `prompts/architect.md`

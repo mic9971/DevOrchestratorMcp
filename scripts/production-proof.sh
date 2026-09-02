@@ -34,9 +34,18 @@ docker compose -f compose.yaml up --build -d
 wait_url "$BASE_URL/healthz"
 wait_url "$BASE_URL/readyz"
 
-echo "[proof] verifying operational auth"
+echo "[proof] verifying operational and control-plane auth"
 status_code="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/metrics")"
 [[ "$status_code" == "401" ]]
+
+control_api_code="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/control/api/dashboard")"
+[[ "$control_api_code" == "401" ]]
+
+curl --fail --silent "$BASE_URL/control/index.html" | grep -q 'DevOrchestrator Control Plane'
+
+curl --fail --silent \
+  -H "X-DevOrchestrator-Key: $DEVORCHESTRATOR_AUDITOR_KEY" \
+  "$BASE_URL/control/api/dashboard" | grep -q '"projects"'
 
 curl --fail --silent \
   -H "X-DevOrchestrator-Key: $DEVORCHESTRATOR_AUDITOR_KEY" \
@@ -73,4 +82,4 @@ if [[ -z "$migration_count" || "$migration_count" -lt 3 ]]; then
   exit 1
 fi
 
-echo "[proof] PASS: runtime, auth, restart, backup and restore verified"
+echo "[proof] PASS: runtime, control plane, auth, restart, backup and restore verified"
