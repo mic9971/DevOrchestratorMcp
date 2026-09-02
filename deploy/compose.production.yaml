@@ -32,7 +32,7 @@ services:
       <<: *app-env
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8080/healthz >/dev/null || exit 1"]
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8080/healthz >/dev/null || exit 1"]
       interval: 10s
       timeout: 3s
       retries: 5
