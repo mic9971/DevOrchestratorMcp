@@ -8,35 +8,21 @@ namespace DevOrchestrator.McpServer.Tools;
 [McpServerToolType]
 public static class GitHubBridgeTools
 {
-    [McpServerTool(
-        Name = "bridge_import_plan_issue",
-        ReadOnly = false,
-        Destructive = false,
-        Idempotent = true,
-        OpenWorld = true,
-        UseStructuredContent = true)]
+    [McpServerTool(Name = "bridge_import_plan_issue", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
     [Description("Import missing orchestration tasks from one GitHub Plan Issue using the devorchestrator.plan.v1 contract.")]
     public static async Task<ToolResponse<GitHubBridgeImportResult>> ImportPlanIssueAsync(
         [Description("Registered project key.")] string projectKey,
         [Description("GitHub Plan Issue number.")] int issueNumber,
         IGitHubBridgeService service,
         CancellationToken cancellationToken)
-        => ToolResponse<GitHubBridgeImportResult>.From(
-            await service.ImportPlanIssueAsync(projectKey, issueNumber, cancellationToken));
+        => ToolResponse<GitHubBridgeImportResult>.From(await service.ImportPlanIssueAsync(projectKey, issueNumber, cancellationToken));
 
-    [McpServerTool(
-        Name = "bridge_sync_reviews",
-        ReadOnly = false,
-        Destructive = false,
-        Idempotent = true,
-        OpenWorld = true,
-        UseStructuredContent = true)]
+    [McpServerTool(Name = "bridge_sync_reviews", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
     [Description("Apply the latest eligible GitHub review-contract comments to ReadyForReview tasks from one Plan Issue.")]
     public static async Task<ToolResponse<GitHubBridgeReviewSyncResult>> SyncReviewsAsync(
         [Description("Registered project key.")] string projectKey,
         [Description("GitHub Plan Issue number.")] int issueNumber,
         IGitHubBridgeService service,
         CancellationToken cancellationToken)
-        => ToolResponse<GitHubBridgeReviewSyncResult>.From(
-            await service.SyncReviewsAsync(projectKey, issueNumber, cancellationToken));
+        => ToolResponse<GitHubBridgeReviewSyncResult>.From(await service.SyncReviewsAsync(projectKey, issueNumber, cancellationToken));
 }
