@@ -33,7 +33,7 @@ internal sealed class GitHubBridgeService(
         {
             issue = await github.GetIssueAsync(project.RepositoryUrl, issueNumber, cancellationToken);
         }
-        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException)
+        catch (GitHubBridgeClientException ex)
         {
             return Result<GitHubBridgeImportResult>.Failure(GitHubFailure(ex.Message));
         }
@@ -133,7 +133,7 @@ internal sealed class GitHubBridgeService(
             issue = await github.GetIssueAsync(project.RepositoryUrl, issueNumber, cancellationToken);
             comments = await github.GetIssueCommentsAsync(project.RepositoryUrl, issueNumber, cancellationToken);
         }
-        catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or JsonException)
+        catch (GitHubBridgeClientException ex)
         {
             return Result<GitHubBridgeReviewSyncResult>.Failure(GitHubFailure(ex.Message));
         }

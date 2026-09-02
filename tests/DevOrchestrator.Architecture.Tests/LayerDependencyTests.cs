@@ -19,7 +19,7 @@ public sealed class LayerDependencyTests
     }
 
     [Fact]
-    public void Application_does_not_reference_infrastructure_or_mcp_host()
+    public void Application_does_not_reference_infrastructure_mcp_or_http_transport()
     {
         var references = ReferencesOf(typeof(DevOrchestrator.Application.DependencyInjection).Assembly);
 
@@ -27,6 +27,7 @@ public sealed class LayerDependencyTests
         Assert.DoesNotContain("DevOrchestrator.McpServer", references);
         Assert.DoesNotContain("ModelContextProtocol", references);
         Assert.DoesNotContain("Microsoft.EntityFrameworkCore", references);
+        Assert.DoesNotContain("System.Net.Http", references);
     }
 
     [Fact]

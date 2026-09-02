@@ -17,23 +17,34 @@ internal sealed class GitHubBridgeClient(
         int issueNumber,
         CancellationToken cancellationToken)
     {
-        var repository = ParseRepository(repositoryUrl);
-        using var request = CreateRequest(
-            HttpMethod.Get,
-            $"https://api.github.com/repos/{repository.Owner}/{repository.Name}/issues/{issueNumber}");
-        using var response = await httpClient.SendAsync(request, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        try
+        {
+            var repository = ParseRepository(repositoryUrl);
+            using var request = CreateRequest(
+                HttpMethod.Get,
+                $"https://api.github.com/repos/{repository.Owner}/{repository.Name}/issues/{issueNumber}");
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            response.EnsureSuccessStatusCode();
 
-        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-        var issue = await JsonSerializer.DeserializeAsync<IssueResponse>(stream, JsonOptions, cancellationToken)
-                    ?? throw new InvalidOperationException("GitHub returned an empty issue response.");
+            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+            var issue = await JsonSerializer.DeserializeAsync<IssueResponse>(stream, JsonOptions, cancellationToken)
+                        ?? throw new InvalidOperationException("GitHub returned an empty issue response.");
 
-        return new GitHubIssueSnapshot(
-            issue.Number,
-            issue.HtmlUrl,
-            issue.Body ?? string.Empty,
-            issue.User?.Login ?? "unknown",
-            issue.UpdatedAt);
+            return new GitHubIssueSnapshot(
+                issue.Number,
+                issue.HtmlUrl,
+                issue.Body ?? string.Empty,
+                issue.User?.Login ?? "unknown",
+                issue.UpdatedAt);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException)
+        {
+            throw new GitHubBridgeClientException(ex.Message, ex);
+        }
     }
 
     public async Task<IReadOnlyList<GitHubIssueCommentSnapshot>> GetIssueCommentsAsync(
@@ -41,35 +52,46 @@ internal sealed class GitHubBridgeClient(
         int issueNumber,
         CancellationToken cancellationToken)
     {
-        var repository = ParseRepository(repositoryUrl);
-        var results = new List<GitHubIssueCommentSnapshot>();
-
-        for (var page = 1; ; page++)
+        try
         {
-            using var request = CreateRequest(
-                HttpMethod.Get,
-                $"https://api.github.com/repos/{repository.Owner}/{repository.Name}/issues/{issueNumber}/comments?per_page=100&page={page}");
-            using var response = await httpClient.SendAsync(request, cancellationToken);
-            response.EnsureSuccessStatusCode();
+            var repository = ParseRepository(repositoryUrl);
+            var results = new List<GitHubIssueCommentSnapshot>();
 
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            var comments = await JsonSerializer.DeserializeAsync<CommentResponse[]>(stream, JsonOptions, cancellationToken)
-                           ?? [];
-
-            results.AddRange(comments.Select(comment => new GitHubIssueCommentSnapshot(
-                comment.Id,
-                comment.HtmlUrl,
-                comment.User?.Login ?? "unknown",
-                comment.Body ?? string.Empty,
-                comment.CreatedAt)));
-
-            if (comments.Length < 100)
+            for (var page = 1; ; page++)
             {
-                break;
-            }
-        }
+                using var request = CreateRequest(
+                    HttpMethod.Get,
+                    $"https://api.github.com/repos/{repository.Owner}/{repository.Name}/issues/{issueNumber}/comments?per_page=100&page={page}");
+                using var response = await httpClient.SendAsync(request, cancellationToken);
+                response.EnsureSuccessStatusCode();
 
-        return results;
+                await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                var comments = await JsonSerializer.DeserializeAsync<CommentResponse[]>(stream, JsonOptions, cancellationToken)
+                               ?? [];
+
+                results.AddRange(comments.Select(comment => new GitHubIssueCommentSnapshot(
+                    comment.Id,
+                    comment.HtmlUrl,
+                    comment.User?.Login ?? "unknown",
+                    comment.Body ?? string.Empty,
+                    comment.CreatedAt)));
+
+                if (comments.Length < 100)
+                {
+                    break;
+                }
+            }
+
+            return results;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex) when (ex is HttpRequestException or JsonException or InvalidOperationException)
+        {
+            throw new GitHubBridgeClientException(ex.Message, ex);
+        }
     }
 
     private HttpRequestMessage CreateRequest(HttpMethod method, string url)

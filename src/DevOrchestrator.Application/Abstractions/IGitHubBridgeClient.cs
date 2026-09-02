@@ -14,6 +14,14 @@ public sealed record GitHubIssueCommentSnapshot(
     string Body,
     DateTimeOffset CreatedAtUtc);
 
+public sealed class GitHubBridgeClientException : Exception
+{
+    public GitHubBridgeClientException(string message, Exception? innerException = null)
+        : base(message, innerException)
+    {
+    }
+}
+
 public interface IGitHubBridgeClient
 {
     Task<GitHubIssueSnapshot> GetIssueAsync(
