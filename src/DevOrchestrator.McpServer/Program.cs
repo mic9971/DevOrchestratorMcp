@@ -13,7 +13,7 @@ var migrateOnly = args.Any(x => string.Equals(x, "migrate", StringComparison.Ord
 var hostArgs = args.Where(x => !string.Equals(x, "migrate", StringComparison.OrdinalIgnoreCase)).ToArray();
 var builder = WebApplication.CreateBuilder(hostArgs);
 
-builder.Services.AddInfrastructure(builder.Configuration);
+builder.Services.AddInfrastructure(builder.Configuration, builder.Environment.ContentRootPath);
 
 if (migrateOnly)
 {
