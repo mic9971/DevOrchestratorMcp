@@ -95,12 +95,15 @@ internal sealed class GitHubWebhookInboxStore(OrchestratorDbContext dbContext)
         string error,
         DateTimeOffset nextAttemptAtUtc,
         CancellationToken cancellationToken)
-        => dbContext.GitHubWebhookInbox
+    {
+        var storedError = error.Length <= 4000 ? error : error.Substring(0, 4000);
+        return dbContext.GitHubWebhookInbox
             .Where(x => x.DeliveryId == deliveryId)
             .ExecuteUpdateAsync(
                 setters => setters
                     .SetProperty(x => x.LeaseExpiresAtUtc, (DateTimeOffset?)null)
                     .SetProperty(x => x.NextAttemptAtUtc, nextAttemptAtUtc)
-                    .SetProperty(x => x.LastError, error.Length <= 4000 ? error : error[..4000]),
+                    .SetProperty(x => x.LastError, storedError),
                 cancellationToken);
+    }
 }
