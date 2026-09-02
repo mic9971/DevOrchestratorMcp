@@ -15,6 +15,15 @@ internal sealed class GitHubWebhookProcessor(
     private static readonly HashSet<string> ReviewActions =
         new(StringComparer.OrdinalIgnoreCase) { "created", "edited" };
 
+    private static readonly HashSet<string> NonRetryablePlanErrors =
+        new(StringComparer.Ordinal)
+        {
+            "bridge.contract.not_found",
+            "bridge.contract.invalid",
+            "bridge.plan.invalid",
+            "bridge.plan.project_mismatch"
+        };
+
     public async Task<Result<GitHubWebhookProcessResult>> ProcessAsync(
         GitHubWebhookNotification notification,
         CancellationToken cancellationToken)
@@ -31,17 +40,10 @@ internal sealed class GitHubWebhookProcessor(
                 new Error("webhook.issue_number_invalid", "GitHub issue number must be positive."));
         }
 
-        var supported = IsSupported(notification.EventName, notification.Action);
-        if (!supported)
+        if (!IsSupported(notification.EventName, notification.Action))
         {
             return Result<GitHubWebhookProcessResult>.Success(
-                new GitHubWebhookProcessResult(
-                    notification.DeliveryId,
-                    notification.EventName,
-                    notification.Action,
-                    "ignored",
-                    null,
-                    notification.IssueNumber));
+                CreateOutcome(notification, "ignored"));
         }
 
         if (!await deliveries.TryBeginAsync(
@@ -50,13 +52,7 @@ internal sealed class GitHubWebhookProcessor(
                 cancellationToken))
         {
             return Result<GitHubWebhookProcessResult>.Success(
-                new GitHubWebhookProcessResult(
-                    notification.DeliveryId,
-                    notification.EventName,
-                    notification.Action,
-                    "duplicate",
-                    null,
-                    notification.IssueNumber));
+                CreateOutcome(notification, "duplicate"));
         }
 
         try
@@ -81,16 +77,9 @@ internal sealed class GitHubWebhookProcessor(
             {
                 await deliveries.CompleteAsync(notification.DeliveryId, cancellationToken);
                 return Result<GitHubWebhookProcessResult>.Success(
-                    new GitHubWebhookProcessResult(
-                        notification.DeliveryId,
-                        notification.EventName,
-                        notification.Action,
-                        "unregistered_repository",
-                        null,
-                        notification.IssueNumber));
+                    CreateOutcome(notification, "unregistered_repository"));
             }
 
-            Result operation;
             if (notification.EventName.Equals("issues", StringComparison.OrdinalIgnoreCase))
             {
                 var import = await bridge.ImportPlanIssueAsync(
@@ -100,11 +89,24 @@ internal sealed class GitHubWebhookProcessor(
 
                 if (import.IsFailure)
                 {
+                    if (NonRetryablePlanErrors.Contains(import.Error.Code))
+                    {
+                        await deliveries.CompleteAsync(notification.DeliveryId, cancellationToken);
+                        var outcome = import.Error.Code == "bridge.contract.not_found"
+                            ? "ignored"
+                            : "rejected";
+
+                        return Result<GitHubWebhookProcessResult>.Success(
+                            CreateOutcome(
+                                notification,
+                                outcome,
+                                project.Key,
+                                $"{import.Error.Code}: {import.Error.Message}"));
+                    }
+
                     await deliveries.AbandonAsync(notification.DeliveryId, cancellationToken);
                     return Result<GitHubWebhookProcessResult>.Failure(import.Error);
                 }
-
-                operation = Result.Success();
             }
             else
             {
@@ -118,23 +120,11 @@ internal sealed class GitHubWebhookProcessor(
                     await deliveries.AbandonAsync(notification.DeliveryId, cancellationToken);
                     return Result<GitHubWebhookProcessResult>.Failure(sync.Error);
                 }
-
-                operation = Result.Success();
             }
 
-            if (operation.IsSuccess)
-            {
-                await deliveries.CompleteAsync(notification.DeliveryId, cancellationToken);
-            }
-
+            await deliveries.CompleteAsync(notification.DeliveryId, cancellationToken);
             return Result<GitHubWebhookProcessResult>.Success(
-                new GitHubWebhookProcessResult(
-                    notification.DeliveryId,
-                    notification.EventName,
-                    notification.Action,
-                    "processed",
-                    project.Key,
-                    notification.IssueNumber));
+                CreateOutcome(notification, "processed", project.Key));
         }
         catch
         {
@@ -142,6 +132,20 @@ internal sealed class GitHubWebhookProcessor(
             throw;
         }
     }
+
+    private static GitHubWebhookProcessResult CreateOutcome(
+        GitHubWebhookNotification notification,
+        string outcome,
+        string? projectKey = null,
+        string? detail = null)
+        => new(
+            notification.DeliveryId,
+            notification.EventName,
+            notification.Action,
+            outcome,
+            projectKey,
+            notification.IssueNumber,
+            detail);
 
     private static bool IsSupported(string eventName, string action)
         => (eventName.Equals("issues", StringComparison.OrdinalIgnoreCase) && PlanActions.Contains(action))
