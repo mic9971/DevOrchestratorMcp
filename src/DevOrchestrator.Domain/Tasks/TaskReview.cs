@@ -16,7 +16,6 @@ public sealed class TaskReview
         string findingsJson,
         DateTimeOffset createdAtUtc)
     {
-        Id = Guid.NewGuid();
         TaskId = taskId;
         Decision = decision;
         Actor = Guard.NotBlank(actor, nameof(actor), 120);
