@@ -15,7 +15,6 @@ public sealed class TaskEvent
         string payloadJson,
         DateTimeOffset createdAtUtc)
     {
-        Id = Guid.NewGuid();
         TaskId = taskId;
         EventType = Guard.NotBlank(eventType, nameof(eventType), 120);
         Actor = Guard.NotBlank(actor, nameof(actor), 120);

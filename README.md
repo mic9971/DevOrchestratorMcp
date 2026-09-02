@@ -14,14 +14,16 @@ The MCP server is deliberately **not** an AI agent. It stores project/task state
 - ASP.NET Core
 - Official `ModelContextProtocol.AspNetCore` C# SDK
 - Streamable HTTP MCP endpoint
-- SQLite for zero-infrastructure POC persistence
+- SQLite for zero-infrastructure local development
+- PostgreSQL provider for shared/production deployment
+- Signed GitHub webhook automation with delivery idempotency
+- Server-side Architect / Implementer / Auditor authorization
 - Clean separation: Common / Domain / Application / Infrastructure / MCP host
-- GitHub Issue/comment bridge for ChatGPT Web handoff
-- Domain, application/bridge, and architecture tests
+- Domain, application/bridge, security, and architecture tests
 
 ## Phase 2 GitHub Bridge
 
-For ChatGPT Web surfaces that cannot invoke write-capable custom MCP tools directly, GitHub becomes the durable handoff contract:
+For ChatGPT Web surfaces that cannot invoke write-capable custom MCP tools directly, GitHub is the durable handoff contract:
 
 ```text
 ChatGPT Web
@@ -35,6 +37,35 @@ ChatGPT Web
 ```
 
 See `docs/PHASE2_GITHUB_BRIDGE.md` and `examples/`.
+
+## Phase 3 Production Orchestration
+
+Phase 3 removes the normal operational need to call the bridge sync tools manually:
+
+```text
+GitHub issues / issue_comment webhook
+          |
+          | HMAC-SHA256 + X-GitHub-Delivery
+          v
+POST /webhooks/github
+          |
+          +--> plan import
+          `--> review sync
+
+Codex / ChatGPT MCP client
+          |
+          | role API key
+          v
+        /mcp
+          |
+          +--> Architect tools
+          +--> Implementer tools
+          `--> Auditor tools
+```
+
+Production persistence can use PostgreSQL with `Database__Provider=postgres`. Local development defaults to SQLite.
+
+See `docs/PHASE3_PRODUCTION_ORCHESTRATION.md`.
 
 ## Workflow
 
@@ -50,8 +81,8 @@ IN_PROGRESS
   │ task_submit_review
   ▼
 READY_FOR_REVIEW
-  ├── review / bridge sync: ChangesRequested ──► CHANGES_REQUESTED ──► task_start
-  └── review / bridge sync: Pass ──────────────► DONE
+  ├── review / webhook sync: ChangesRequested ──► CHANGES_REQUESTED ──► task_start
+  └── review / webhook sync: Pass ──────────────► DONE
 ```
 
 A passing review automatically promotes dependent `Draft` tasks to `Ready` when all dependencies are `Done`.
@@ -86,7 +117,7 @@ Auditor / privileged:
 - `task_reopen`
 - `task_resume`
 
-**Codex should not be granted `review_submit`.** This prevents the implementation agent from approving its own work.
+Client-side tool allow-lists remain useful, but Phase 3 also enforces these roles on the server.
 
 ## Run locally
 
@@ -105,56 +136,79 @@ For a fixed port:
 ASPNETCORE_URLS=http://127.0.0.1:5058 dotnet run --project src/DevOrchestrator.McpServer
 ```
 
-MCP endpoint:
+Endpoints:
 
 ```text
-http://127.0.0.1:5058/mcp
+MCP:       http://127.0.0.1:5058/mcp
+Liveness:  http://127.0.0.1:5058/healthz
+Readiness: http://127.0.0.1:5058/readyz
+Webhook:   http://127.0.0.1:5058/webhooks/github
 ```
+
+Local `appsettings.json` keeps `Security:RequireAuthentication=false` for backward-compatible POC use.
 
 ## Codex configuration
 
-See `docs/CODEX_SETUP.md` and `.codex/config.toml.example`.
+Copy `.codex/config.toml.example` into the target repository and export an implementer key:
 
-## GitHub Bridge quick start
+```bash
+export DEVORCHESTRATOR_IMPLEMENTER_KEY="<secret>"
+```
 
-1. Run the MCP server.
-2. Register a target repository with `project_register`.
-3. ChatGPT creates one GitHub Plan Issue containing a `devorchestrator.plan.v1` fenced JSON block.
-4. Codex calls `bridge_import_plan_issue`, then `task_get_next`.
-5. Codex implements one task, records real Git evidence, and calls `task_submit_review`.
-6. ChatGPT audits the PR and posts a `devorchestrator.review.v1` comment on the Plan Issue.
-7. Codex (or an operator) calls `bridge_sync_reviews`.
-8. The MCP transitions the task to `Done` or `ChangesRequested`.
+The example uses `bearer_token_env_var` so Codex authenticates as the Implementer role while still exposing only the implementer tool allow-list.
+
+See `docs/CODEX_SETUP.md`.
+
+## Production configuration
+
+Typical environment variables:
+
+```text
+Database__Provider=postgres
+ConnectionStrings__Orchestrator=Host=postgres;Port=5432;Database=devorchestrator;Username=devorchestrator;Password=...
+Security__RequireAuthentication=true
+Security__ArchitectKey=...
+Security__ImplementerKey=...
+Security__AuditorKey=...
+GitHub__Token=...
+GitHub__WebhookSecret=...
+```
+
+Never commit these values.
+
+`compose.yaml` provides PostgreSQL + DevOrchestrator wiring for a production-like local deployment.
 
 ## Persistence
 
-The POC uses:
+SQLite remains the local default:
 
 ```text
 src/DevOrchestrator.McpServer/data/dev-orchestrator.db
 ```
 
-The `data/` directory is ignored by Git.
+PostgreSQL is selected with `Database__Provider=postgres`. Webhook delivery IDs are persisted in `github_webhook_deliveries`, so multiple server instances share replay protection.
 
-The current version uses `EnsureCreated` for a low-friction POC. Before production deployment, replace it with EF Core migrations and move to PostgreSQL if multiple server replicas or operational DB controls are required.
+Phase 3 retains `EnsureCreated` for compatibility with the current POC schema. Introduce versioned EF Core migrations before future destructive or transforming schema changes.
 
 ## Security
 
-For local use, `AllowedHosts` is restricted to loopback names. For remote deployment:
+For remote deployment:
 
-- serve MCP behind HTTPS;
-- use authentication;
+- serve MCP and webhook endpoints behind HTTPS;
+- set `Security__RequireAuthentication=true`;
+- configure distinct Architect, Implementer, and Auditor keys;
+- set a strong `GitHub__WebhookSecret`;
 - configure exact allowed hosts;
-- keep Architect/Auditor tools out of the Codex allow-list;
-- treat `review_submit` as privileged;
+- do not give Codex the Architect or Auditor key;
 - do not grant Codex GitHub Issue-comment write credentials when strict separation of duties is required;
-- never place GitHub tokens in task descriptions/evidence.
+- never place GitHub/API tokens in task descriptions, evidence, commits, or PRs.
 
 ## Design docs
 
 - `docs/ARCHITECTURE.md`
 - `docs/WORKFLOW.md`
 - `docs/PHASE2_GITHUB_BRIDGE.md`
+- `docs/PHASE3_PRODUCTION_ORCHESTRATION.md`
 - `docs/CODEX_SETUP.md`
 - `AGENTS.md`
 - `prompts/architect.md`

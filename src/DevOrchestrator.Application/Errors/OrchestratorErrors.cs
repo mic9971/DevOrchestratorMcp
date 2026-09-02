@@ -22,6 +22,9 @@ public static class OrchestratorErrors
     public static Error InvalidState(string message)
         => new("task.invalid_state", message);
 
+    public static Error ConcurrencyConflict(string message)
+        => new("task.concurrency_conflict", message);
+
     public static Error InvalidInput(string message)
         => new("input.invalid", message);
 }

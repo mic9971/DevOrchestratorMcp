@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using DevOrchestrator.Application.Contracts;
 using DevOrchestrator.Application.Services;
+using DevOrchestrator.McpServer.Security;
 using ModelContextProtocol.Server;
 
 namespace DevOrchestrator.McpServer.Tools;
@@ -23,8 +24,12 @@ public static class ProjectTools
         [Description("Default branch, usually main.")] string defaultBranch,
         [Description("Actor creating the registration, for example chatgpt-architect.")] string actor,
         IProjectService service,
+        ToolAuthorizer authorizer,
         CancellationToken cancellationToken)
-        => ToolResponse<ProjectDto>.From(
+    {
+        authorizer.Require(McpCallerRole.Architect);
+
+        return ToolResponse<ProjectDto>.From(
             await service.RegisterAsync(
                 projectKey,
                 name,
@@ -32,6 +37,7 @@ public static class ProjectTools
                 defaultBranch,
                 actor,
                 cancellationToken));
+    }
 
     [McpServerTool(
         Name = "project_get",

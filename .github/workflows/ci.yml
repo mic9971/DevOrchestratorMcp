@@ -24,3 +24,13 @@ jobs:
 
       - name: Test
         run: dotnet test DevOrchestratorMcp.sln -c Release --no-build
+
+      - name: Validate production compose
+        env:
+          POSTGRES_PASSWORD: ci-postgres-password
+          DEVORCHESTRATOR_ARCHITECT_KEY: ci-architect-key
+          DEVORCHESTRATOR_IMPLEMENTER_KEY: ci-implementer-key
+          DEVORCHESTRATOR_AUDITOR_KEY: ci-auditor-key
+          GITHUB_TOKEN: ci-github-token
+          GITHUB_WEBHOOK_SECRET: ci-webhook-secret
+        run: docker compose -f compose.yaml config --quiet

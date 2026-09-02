@@ -21,6 +21,8 @@ public sealed class OrchestratorDbContext(DbContextOptions<OrchestratorDbContext
 
     public DbSet<TaskEvent> TaskEvents => Set<TaskEvent>();
 
+    public DbSet<GitHubWebhookDelivery> GitHubWebhookDeliveries => Set<GitHubWebhookDelivery>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<TargetProject>(entity =>
@@ -48,6 +50,7 @@ public sealed class OrchestratorDbContext(DbContextOptions<OrchestratorDbContext
             entity.Property(x => x.LastCommitSha).HasMaxLength(120);
             entity.Property(x => x.PullRequestUrl).HasMaxLength(1000);
             entity.Property(x => x.BlockReason).HasMaxLength(2000);
+            entity.Property(x => x.Revision).IsConcurrencyToken();
 
             entity.HasMany(x => x.AcceptanceCriteria)
                 .WithOne()
@@ -109,6 +112,7 @@ public sealed class OrchestratorDbContext(DbContextOptions<OrchestratorDbContext
         {
             entity.ToTable("task_evidence");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.Property(x => x.Actor).HasMaxLength(120);
             entity.Property(x => x.Branch).HasMaxLength(300);
             entity.Property(x => x.CommitSha).HasMaxLength(120);
@@ -119,6 +123,7 @@ public sealed class OrchestratorDbContext(DbContextOptions<OrchestratorDbContext
         {
             entity.ToTable("task_reviews");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.Property(x => x.Actor).HasMaxLength(120);
             entity.Property(x => x.Summary).HasMaxLength(5000);
         });
@@ -127,9 +132,19 @@ public sealed class OrchestratorDbContext(DbContextOptions<OrchestratorDbContext
         {
             entity.ToTable("task_events");
             entity.HasKey(x => x.Id);
+            entity.Property(x => x.Id).ValueGeneratedOnAdd();
             entity.HasIndex(x => new { x.TaskId, x.CreatedAtUtc });
             entity.Property(x => x.EventType).HasMaxLength(120);
             entity.Property(x => x.Actor).HasMaxLength(120);
+        });
+
+        modelBuilder.Entity<GitHubWebhookDelivery>(entity =>
+        {
+            entity.ToTable("github_webhook_deliveries");
+            entity.HasKey(x => x.DeliveryId);
+            entity.Property(x => x.DeliveryId).HasMaxLength(120);
+            entity.Property(x => x.EventName).HasMaxLength(80);
+            entity.HasIndex(x => new { x.CompletedAtUtc, x.LeaseExpiresAtUtc });
         });
     }
 }

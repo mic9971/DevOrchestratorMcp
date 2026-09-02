@@ -14,16 +14,32 @@ public static class DependencyInjection
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        var connectionString =
-            configuration.GetConnectionString("Orchestrator")
-            ?? "Data Source=data/dev-orchestrator.db";
+        var provider = configuration["Database:Provider"]?.Trim().ToLowerInvariant() ?? "sqlite";
+        var connectionString = configuration.GetConnectionString("Orchestrator");
 
         services.AddDbContext<OrchestratorDbContext>(options =>
-            options.UseSqlite(connectionString));
+        {
+            if (provider == "postgres")
+            {
+                options.UseNpgsql(
+                    connectionString
+                    ?? "Host=localhost;Port=5432;Database=devorchestrator;Username=devorchestrator;Password=devorchestrator");
+                return;
+            }
+
+            if (provider != "sqlite")
+            {
+                throw new InvalidOperationException(
+                    $"Unsupported Database:Provider '{provider}'. Use 'sqlite' or 'postgres'.");
+            }
+
+            options.UseSqlite(connectionString ?? "Data Source=data/dev-orchestrator.db");
+        });
 
         services.AddScoped<ITargetProjectRepository, TargetProjectRepository>();
         services.AddScoped<IDevelopmentTaskRepository, DevelopmentTaskRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
+        services.AddScoped<IGitHubWebhookDeliveryStore, GitHubWebhookDeliveryStore>();
 
         services.AddSingleton<HttpClient>();
         services.AddSingleton<IGitHubBridgeClient, GitHubBridgeClient>();

@@ -69,6 +69,10 @@ internal sealed class ReviewService(
 
             return Result<TaskDto>.Success(TaskMapping.Map(task, project.Key, dependencyCodes));
         }
+        catch (ConcurrencyConflictException ex)
+        {
+            return Result<TaskDto>.Failure(OrchestratorErrors.ConcurrencyConflict(ex.Message));
+        }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
             return Result<TaskDto>.Failure(OrchestratorErrors.InvalidState(ex.Message));

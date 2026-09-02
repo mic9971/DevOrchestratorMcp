@@ -20,13 +20,20 @@ In MCP server settings:
 2. Choose **Streamable HTTP**.
 3. Name it `dev-orchestrator`.
 4. URL: `http://127.0.0.1:5058/mcp`.
-5. Restart the extension/app.
+5. Configure the Implementer bearer token when Phase 3 authentication is enabled.
+6. Restart the extension/app.
 
 ## Codex `config.toml`
 
 Use a project-scoped `.codex/config.toml` in the target repository or merge the example into `~/.codex/config.toml`.
 
-Recommended implementer allow-list:
+Export the implementer key without committing it:
+
+```bash
+export DEVORCHESTRATOR_IMPLEMENTER_KEY="<secret>"
+```
+
+Recommended implementer configuration:
 
 ```toml
 [mcp_servers.dev_orchestrator]
@@ -36,6 +43,7 @@ required = true
 startup_timeout_sec = 20
 tool_timeout_sec = 60
 default_tools_approval_mode = "writes"
+bearer_token_env_var = "DEVORCHESTRATOR_IMPLEMENTER_KEY"
 
 enabled_tools = [
   "project_get",
@@ -61,38 +69,75 @@ task_reopen
 
 to the Codex implementer allow-list.
 
-`bridge_import_plan_issue` is allowed because it consumes a plan already authored in GitHub instead of allowing Codex to invent its own task contract.
+Phase 3 also enforces role separation on the server, so an Implementer key cannot call Architect/Auditor tools even if a client configuration is accidentally broadened.
 
-`bridge_sync_reviews` is allowed because it consumes a review already authored in GitHub instead of allowing Codex to call `review_submit` directly.
+## Phase 2 manual bridge cycle
 
-For strict separation of duties, Codex should have Git push/PR capabilities but should not receive a GitHub token with Issue comment write permission.
+When webhooks are not configured, Codex can still use the Phase 2 cycle:
 
-## GitHub Bridge startup cycle
-
-When a Plan Issue number is supplied to Codex:
-
-1. Call `bridge_import_plan_issue` once. It is safe to call again because existing task codes are skipped.
-2. Call `bridge_sync_reviews` to consume any new auditor comment from the previous implementation cycle.
+1. Call `bridge_import_plan_issue`.
+2. Call `bridge_sync_reviews`.
 3. Call `task_get_next`.
 4. Implement the returned task only.
 5. Record real Git evidence and call `task_submit_review`.
-6. Stop and wait for an independent ChatGPT audit.
+6. Stop for independent audit.
 
-On the next implementation cycle, repeat steps 1–6.
+## Phase 3 webhook cycle
 
-## GitHub token for the MCP server
+When the target GitHub repository sends signed `issues` and `issue_comment` events to `/webhooks/github`:
 
-The MCP GitHub Bridge reads the registered target repository through GitHub REST.
+- plan issue creation/edits automatically import missing tasks;
+- review comment creation/edits automatically synchronize review decisions;
+- `X-GitHub-Delivery` prevents duplicate webhook replay.
 
-Public repositories need no token for a basic POC. For private repositories or higher rate limits:
+Codex therefore normally starts with:
 
-```bash
-export GitHub__Token=<token>
+```text
+task_get_next
 ```
 
-`GITHUB_TOKEN` is also recognized.
+and only uses the Phase 2 bridge tools as an explicit recovery/manual-sync path.
 
-Do not commit tokens into the target repo or DevOrchestratorMcp.
+## GitHub configuration for the MCP server
+
+For private repositories or higher API rate limits:
+
+```bash
+export GitHub__Token="<token>"
+```
+
+For webhook verification:
+
+```bash
+export GitHub__WebhookSecret="<strong-random-secret>"
+```
+
+Configure the same webhook secret in GitHub and subscribe at minimum to:
+
+```text
+Issues
+Issue comments
+```
+
+Webhook URL:
+
+```text
+https://<your-host>/webhooks/github
+```
+
+Do not commit tokens or webhook secrets.
+
+## Production role keys
+
+When `Security__RequireAuthentication=true`, configure three distinct secrets:
+
+```bash
+export Security__ArchitectKey="<architect-secret>"
+export Security__ImplementerKey="$DEVORCHESTRATOR_IMPLEMENTER_KEY"
+export Security__AuditorKey="<auditor-secret>"
+```
+
+Codex receives only the Implementer key. ChatGPT/human operator tooling receives the appropriate Architect or Auditor credential through its deployment environment.
 
 ## Suggested Codex startup instruction
 
@@ -100,11 +145,10 @@ Use `prompts/implementer.md` as the stable workflow instruction, while the targe
 
 ## Shared state model
 
-ChatGPT Web and local Codex do not need to share one local config file. The durable handoff is:
-
 ```text
 GitHub Plan Issue + review comments
              |
+       signed webhooks
              v
 DevOrchestratorMcp task database
              |

@@ -401,6 +401,10 @@ internal sealed class TaskService(
             return Result<TaskDto>.Success(
                 await MapWithDependencyCodesAsync(project, task, cancellationToken));
         }
+        catch (ConcurrencyConflictException ex)
+        {
+            return Result<TaskDto>.Failure(OrchestratorErrors.ConcurrencyConflict(ex.Message));
+        }
         catch (Exception ex) when (ex is ArgumentException or InvalidOperationException)
         {
             return Result<TaskDto>.Failure(OrchestratorErrors.InvalidState(ex.Message));

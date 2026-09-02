@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using DevOrchestrator.Application.Contracts;
 using DevOrchestrator.Application.Services;
+using DevOrchestrator.McpServer.Security;
 using ModelContextProtocol.Server;
 
 namespace DevOrchestrator.McpServer.Tools;
@@ -14,8 +15,13 @@ public static class GitHubBridgeTools
         [Description("Registered project key.")] string projectKey,
         [Description("GitHub Plan Issue number.")] int issueNumber,
         IGitHubBridgeService service,
+        ToolAuthorizer authorizer,
         CancellationToken cancellationToken)
-        => ToolResponse<GitHubBridgeImportResult>.From(await service.ImportPlanIssueAsync(projectKey, issueNumber, cancellationToken));
+    {
+        authorizer.Require(McpCallerRole.Architect, McpCallerRole.Implementer);
+        return ToolResponse<GitHubBridgeImportResult>.From(
+            await service.ImportPlanIssueAsync(projectKey, issueNumber, cancellationToken));
+    }
 
     [McpServerTool(Name = "bridge_sync_reviews", ReadOnly = false, Destructive = false, Idempotent = true, OpenWorld = true, UseStructuredContent = true)]
     [Description("Apply the latest eligible GitHub review-contract comments to ReadyForReview tasks from one Plan Issue.")]
@@ -23,6 +29,11 @@ public static class GitHubBridgeTools
         [Description("Registered project key.")] string projectKey,
         [Description("GitHub Plan Issue number.")] int issueNumber,
         IGitHubBridgeService service,
+        ToolAuthorizer authorizer,
         CancellationToken cancellationToken)
-        => ToolResponse<GitHubBridgeReviewSyncResult>.From(await service.SyncReviewsAsync(projectKey, issueNumber, cancellationToken));
+    {
+        authorizer.Require(McpCallerRole.Implementer, McpCallerRole.Auditor);
+        return ToolResponse<GitHubBridgeReviewSyncResult>.From(
+            await service.SyncReviewsAsync(projectKey, issueNumber, cancellationToken));
+    }
 }
