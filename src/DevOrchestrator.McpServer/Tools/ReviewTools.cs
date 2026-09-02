@@ -9,13 +9,7 @@ namespace DevOrchestrator.McpServer.Tools;
 [McpServerToolType]
 public static class ReviewTools
 {
-    [McpServerTool(
-        Name = "review_submit",
-        ReadOnly = false,
-        Destructive = false,
-        Idempotent = false,
-        OpenWorld = false,
-        UseStructuredContent = true)]
+    [McpServerTool(Name = "review_submit", ReadOnly = false, Destructive = false, Idempotent = false, OpenWorld = false, UseStructuredContent = true)]
     [Description("Audit a ReadyForReview task. PASS can complete the task; ChangesRequested sends it back to Codex.")]
     public static async Task<ToolResponse<TaskDto>> SubmitAsync(
         [Description("Project key.")] string projectKey,
@@ -23,13 +17,13 @@ public static class ReviewTools
         [Description("Pass or ChangesRequested.")] string decision,
         [Description("Concise audit summary comparing requirement, acceptance criteria, diff, and tests.")] string summary,
         [Description("Concrete audit findings. Empty array is valid for a clean pass.")] string[] findings,
-        [Description("Reviewer actor, for example chatgpt-auditor.")] string actor,
+        [Description("Reviewer actor hint. Authenticated callers are bound to the Auditor identity.")] string actor,
         [Description("When true, a Pass transitions the task directly to Done and unlocks dependents.")] bool completeOnPass,
         IReviewService service,
         ToolAuthorizer authorizer,
         CancellationToken cancellationToken)
     {
-        authorizer.Require(McpCallerRole.Auditor);
+        actor = authorizer.RequireAndResolveActor(actor, McpCallerRole.Auditor);
 
         return ToolResponse<TaskDto>.From(
             await service.SubmitAsync(

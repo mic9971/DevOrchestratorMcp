@@ -8,9 +8,35 @@ public sealed class ToolAuthorizer(
 {
     public void Require(params McpCallerRole[] allowedRoles)
     {
+        _ = ResolveRole(allowedRoles);
+    }
+
+    public string RequireAndResolveActor(
+        string requestedActor,
+        params McpCallerRole[] allowedRoles)
+    {
         if (!options.Value.RequireAuthentication)
         {
-            return;
+            return requestedActor;
+        }
+
+        var role = ResolveRole(allowedRoles)
+            ?? throw new UnauthorizedAccessException("MCP caller role is unavailable.");
+
+        return role switch
+        {
+            McpCallerRole.Architect => "mcp:architect",
+            McpCallerRole.Implementer => "mcp:implementer",
+            McpCallerRole.Auditor => "mcp:auditor",
+            _ => throw new UnauthorizedAccessException("Unknown MCP caller role.")
+        };
+    }
+
+    private McpCallerRole? ResolveRole(IReadOnlyCollection<McpCallerRole> allowedRoles)
+    {
+        if (!options.Value.RequireAuthentication)
+        {
+            return null;
         }
 
         var context = httpContextAccessor.HttpContext
@@ -23,5 +49,7 @@ public sealed class ToolAuthorizer(
             throw new UnauthorizedAccessException(
                 $"MCP caller is not authorized for this tool. Required role: {string.Join(" or ", allowedRoles)}.");
         }
+
+        return role;
     }
 }

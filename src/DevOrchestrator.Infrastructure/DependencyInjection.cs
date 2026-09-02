@@ -38,6 +38,7 @@ public static class DependencyInjection
 
         services.AddScoped<ITargetProjectRepository, TargetProjectRepository>();
         services.AddScoped<IDevelopmentTaskRepository, DevelopmentTaskRepository>();
+        services.AddScoped<ITaskReadRepository, TaskReadRepository>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
         services.AddScoped<IGitHubWebhookDeliveryStore, GitHubWebhookDeliveryStore>();
 
