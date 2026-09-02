@@ -1,5 +1,6 @@
 using System.Net;
 using DevOrchestrator.Domain.Identity;
+using DevOrchestrator.Infrastructure;
 using DevOrchestrator.Infrastructure.Persistence;
 using DevOrchestrator.McpServer.Identity;
 using Microsoft.AspNetCore.Hosting;
