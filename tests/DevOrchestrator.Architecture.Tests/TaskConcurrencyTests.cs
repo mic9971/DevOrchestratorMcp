@@ -19,7 +19,7 @@ public sealed class TaskConcurrencyTests
         try
         {
             await using var provider = BuildProvider(databasePath);
-            await provider.InitializeDatabaseAsync();
+            await provider.MigrateDatabaseAsync();
 
             var now = DateTimeOffset.UtcNow;
             var projectId = Guid.NewGuid();

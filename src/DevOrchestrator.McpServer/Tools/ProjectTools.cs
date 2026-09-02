@@ -22,12 +22,12 @@ public static class ProjectTools
         [Description("Human-readable project name.")] string name,
         [Description("Absolute HTTP(S) Git repository URL.")] string repositoryUrl,
         [Description("Default branch, usually main.")] string defaultBranch,
-        [Description("Actor creating the registration, for example chatgpt-architect.")] string actor,
+        [Description("Actor hint. Authenticated callers are bound to their server-side role identity.")] string actor,
         IProjectService service,
         ToolAuthorizer authorizer,
         CancellationToken cancellationToken)
     {
-        authorizer.Require(McpCallerRole.Architect);
+        actor = authorizer.RequireAndResolveActor(actor, McpCallerRole.Architect);
 
         return ToolResponse<ProjectDto>.From(
             await service.RegisterAsync(
@@ -39,32 +39,18 @@ public static class ProjectTools
                 cancellationToken));
     }
 
-    [McpServerTool(
-        Name = "project_get",
-        ReadOnly = true,
-        Destructive = false,
-        Idempotent = true,
-        OpenWorld = false,
-        UseStructuredContent = true)]
+    [McpServerTool(Name = "project_get", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description("Get one registered target project.")]
     public static async Task<ToolResponse<ProjectDto>> GetAsync(
         [Description("Project key.")] string projectKey,
         IProjectService service,
         CancellationToken cancellationToken)
-        => ToolResponse<ProjectDto>.From(
-            await service.GetAsync(projectKey, cancellationToken));
+        => ToolResponse<ProjectDto>.From(await service.GetAsync(projectKey, cancellationToken));
 
-    [McpServerTool(
-        Name = "project_list",
-        ReadOnly = true,
-        Destructive = false,
-        Idempotent = true,
-        OpenWorld = false,
-        UseStructuredContent = true)]
+    [McpServerTool(Name = "project_list", ReadOnly = true, Destructive = false, Idempotent = true, OpenWorld = false, UseStructuredContent = true)]
     [Description("List registered target projects.")]
     public static async Task<ToolResponse<IReadOnlyList<ProjectDto>>> ListAsync(
         IProjectService service,
         CancellationToken cancellationToken)
-        => ToolResponse<IReadOnlyList<ProjectDto>>.From(
-            await service.ListAsync(cancellationToken));
+        => ToolResponse<IReadOnlyList<ProjectDto>>.From(await service.ListAsync(cancellationToken));
 }

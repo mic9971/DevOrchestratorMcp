@@ -41,33 +41,37 @@ internal sealed class ReviewService(
         if (!Enum.TryParse<ReviewDecision>(decision, true, out var reviewDecision))
         {
             return Result<TaskDto>.Failure(
-                OrchestratorErrors.InvalidInput(
-                    "decision must be 'Pass' or 'ChangesRequested'."));
+                OrchestratorErrors.InvalidInput("decision must be 'Pass' or 'ChangesRequested'."));
         }
 
         try
         {
-            var findingsJson = JsonSerializer.Serialize(findings ?? []);
-            task.ApplyReview(
-                reviewDecision,
-                actor,
-                summary,
-                findingsJson,
-                completeOnPass,
-                clock.UtcNow);
-
-            await unitOfWork.SaveChangesAsync(cancellationToken);
-
-            if (reviewDecision == ReviewDecision.Pass && completeOnPass)
+            TaskDto? output = null;
+            await unitOfWork.ExecuteInTransactionAsync(async transactionCancellationToken =>
             {
-                await PromoteDependentsAsync(task.Id, actor, cancellationToken);
-                await unitOfWork.SaveChangesAsync(cancellationToken);
-            }
+                var findingsJson = JsonSerializer.Serialize(findings ?? []);
+                task.ApplyReview(
+                    reviewDecision,
+                    actor,
+                    summary,
+                    findingsJson,
+                    completeOnPass,
+                    clock.UtcNow);
 
-            var allTasks = await tasks.ListAsync(project.Id, null, cancellationToken);
-            var dependencyCodes = allTasks.ToDictionary(x => x.Id, x => x.Code);
+                await unitOfWork.SaveChangesAsync(transactionCancellationToken);
 
-            return Result<TaskDto>.Success(TaskMapping.Map(task, project.Key, dependencyCodes));
+                if (reviewDecision == ReviewDecision.Pass && completeOnPass)
+                {
+                    await PromoteDependentsAsync(task.Id, actor, transactionCancellationToken);
+                    await unitOfWork.SaveChangesAsync(transactionCancellationToken);
+                }
+
+                var allTasks = await tasks.ListAsync(project.Id, null, transactionCancellationToken);
+                var dependencyCodes = allTasks.ToDictionary(x => x.Id, x => x.Code);
+                output = TaskMapping.Map(task, project.Key, dependencyCodes);
+            }, cancellationToken);
+
+            return Result<TaskDto>.Success(output!);
         }
         catch (ConcurrencyConflictException ex)
         {

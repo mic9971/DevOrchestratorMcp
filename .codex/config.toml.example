@@ -12,6 +12,7 @@ enabled_tools = [
   "bridge_import_plan_issue",
   "bridge_sync_reviews",
   "task_get",
+  "task_list_page",
   "task_get_next",
   "task_start",
   "task_add_evidence",

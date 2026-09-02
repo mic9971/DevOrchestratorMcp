@@ -19,7 +19,7 @@ public sealed class WebhookDeliveryStoreTests
         try
         {
             await using var provider = BuildProvider(databasePath);
-            await provider.InitializeDatabaseAsync();
+            await provider.MigrateDatabaseAsync();
 
             await using var scope = provider.CreateAsyncScope();
             var store = scope.ServiceProvider.GetRequiredService<IGitHubWebhookDeliveryStore>();
@@ -50,7 +50,7 @@ public sealed class WebhookDeliveryStoreTests
         try
         {
             await using var provider = BuildProvider(databasePath);
-            await provider.InitializeDatabaseAsync();
+            await provider.MigrateDatabaseAsync();
 
             await using var scope = provider.CreateAsyncScope();
             var store = scope.ServiceProvider.GetRequiredService<IGitHubWebhookDeliveryStore>();

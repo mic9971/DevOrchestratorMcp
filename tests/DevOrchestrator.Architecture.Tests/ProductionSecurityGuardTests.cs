@@ -3,7 +3,7 @@ namespace DevOrchestrator.Architecture.Tests;
 public sealed class ProductionSecurityGuardTests
 {
     [Fact]
-    public void Mcp_host_must_enforce_server_side_role_separation()
+    public void Mcp_host_must_enforce_server_side_role_separation_and_actor_binding()
     {
         var root = FindRepositoryRoot();
         var program = File.ReadAllText(Path.Combine(
@@ -31,10 +31,10 @@ public sealed class ProductionSecurityGuardTests
             "ProjectTools.cs"));
 
         Assert.Contains("UseMiddleware<McpApiKeyMiddleware>", program, StringComparison.Ordinal);
-        Assert.Contains("authorizer.Require(McpCallerRole.Architect)", projectTools, StringComparison.Ordinal);
-        Assert.Contains("authorizer.Require(McpCallerRole.Implementer)", taskTools, StringComparison.Ordinal);
-        Assert.Contains("authorizer.Require(McpCallerRole.Auditor)", reviewTools, StringComparison.Ordinal);
-        Assert.Contains("authorizer.Require(McpCallerRole.Auditor)", taskTools, StringComparison.Ordinal);
+        Assert.Contains("RequireAndResolveActor(actor, McpCallerRole.Architect)", projectTools, StringComparison.Ordinal);
+        Assert.Contains("RequireAndResolveActor(actor, McpCallerRole.Implementer)", taskTools, StringComparison.Ordinal);
+        Assert.Contains("RequireAndResolveActor(actor, McpCallerRole.Auditor)", reviewTools, StringComparison.Ordinal);
+        Assert.Contains("RequireAndResolveActor(actor, McpCallerRole.Auditor", taskTools, StringComparison.Ordinal);
     }
 
     [Fact]
