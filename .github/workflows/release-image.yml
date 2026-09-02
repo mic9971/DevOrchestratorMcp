@@ -1,0 +1,40 @@
+name: release-image
+
+on:
+  push:
+    branches: ["main"]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: echo "$GHCR_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Build immutable image
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/devorchestratormcp
+        run: |
+          docker build --pull -t "$IMAGE:sha-${GITHUB_SHA}" .
+          docker tag "$IMAGE:sha-${GITHUB_SHA}" "$IMAGE:latest"
+
+      - name: Push image
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/devorchestratormcp
+        run: |
+          docker push "$IMAGE:sha-${GITHUB_SHA}"
+          docker push "$IMAGE:latest"
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            docker tag "$IMAGE:sha-${GITHUB_SHA}" "$IMAGE:${GITHUB_REF_NAME}"
+            docker push "$IMAGE:${GITHUB_REF_NAME}"
+          fi
