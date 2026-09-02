@@ -13,12 +13,24 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
 
-  dev-orchestrator:
+  db-migrate:
     build:
       context: .
     depends_on:
       postgres:
         condition: service_healthy
+    command: ["migrate"]
+    environment:
+      Database__Provider: postgres
+      ConnectionStrings__Orchestrator: "Host=postgres;Port=5432;Database=devorchestrator;Username=devorchestrator;Password=${POSTGRES_PASSWORD:-devorchestrator}"
+    restart: "no"
+
+  dev-orchestrator:
+    build:
+      context: .
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
     ports:
       - "5058:8080"
     environment:
