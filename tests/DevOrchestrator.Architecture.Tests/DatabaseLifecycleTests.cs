@@ -23,7 +23,8 @@ public sealed class DatabaseLifecycleTests
 
             await using (var legacy = new OrchestratorDbContext(options))
             {
-                await legacy.Database.EnsureCreatedAsync();
+                await legacy.Database.MigrateAsync(DatabaseInitializer.InitialMigrationId);
+                await legacy.Database.ExecuteSqlRawAsync("DELETE FROM __EFMigrationsHistory;");
             }
 
             await using var provider = BuildProvider("sqlite", connectionString);
@@ -33,6 +34,8 @@ public sealed class DatabaseLifecycleTests
             var db = scope.ServiceProvider.GetRequiredService<OrchestratorDbContext>();
             var applied = await db.Database.GetAppliedMigrationsAsync();
             Assert.Contains(DatabaseInitializer.InitialMigrationId, applied);
+            Assert.Contains("202609020002_TaskWorkerLeases", applied);
+            Assert.Contains("202609020003_DurableWebhookInbox", applied);
             Assert.Empty(await db.Database.GetPendingMigrationsAsync());
         }
         finally
