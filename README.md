@@ -18,9 +18,11 @@ The MCP server is deliberately **not** an AI agent. It stores project/task state
 - Versioned EF Core migrations with an explicit migration process
 - Signed GitHub webhook ingestion with durable database inbox and retry worker
 - Server-side Architect / Implementer / Auditor authorization
-- Multi-worker task lease, heartbeat, expiry, and reclaim
-- OpenTelemetry tracing baseline
-- Domain, application, database, security, HTTP, and architecture tests
+- Multi-worker task lease, heartbeat, expiry, reclaim and manual recovery
+- OpenTelemetry tracing baseline + authenticated Prometheus operational gauges
+- Immutable GHCR release image and vendor-neutral production Compose
+- PostgreSQL logical backup/restore recovery drill
+- Domain, application, database, security, HTTP, runtime and architecture tests
 
 ## Orchestration flow
 
@@ -57,7 +59,7 @@ GitHub review contract (`devorchestrator.review.v1`)
           DONE         CHANGES_REQUESTED
 ```
 
-If a worker disappears, its task can be reclaimed after lease expiry. A passing review promotes dependent `Draft` tasks to `Ready` atomically when all dependencies are complete.
+If a worker disappears, its task can be reclaimed after lease expiry. An Auditor can also expire a stuck lease immediately without deleting ownership/history. A passing review promotes dependent `Draft` tasks to `Ready` atomically when all dependencies are complete.
 
 ## MCP tools
 
@@ -116,9 +118,11 @@ MCP:       http://127.0.0.1:5058/mcp
 Liveness:  http://127.0.0.1:5058/healthz
 Readiness: http://127.0.0.1:5058/readyz
 Webhook:   http://127.0.0.1:5058/webhooks/github
+Ops:       http://127.0.0.1:5058/ops/status
+Metrics:   http://127.0.0.1:5058/metrics
 ```
 
-`/readyz` returns not-ready when the database has pending migrations. Normal MCP startup never performs DDL.
+`/readyz` returns not-ready when the database has pending migrations. Normal MCP startup never performs DDL. `/ops/*` and `/metrics` require the Auditor key when authentication is enabled.
 
 ## Codex configuration
 
@@ -174,15 +178,45 @@ src/DevOrchestrator.McpServer/data/dev-orchestrator.db
 
 PostgreSQL is selected with `Database__Provider=postgres`. `compose.yaml` runs a one-shot `db-migrate` service before MCP startup. CI boots PostgreSQL and executes the real migration path.
 
+For production, `.github/workflows/release-image.yml` publishes immutable `ghcr.io/<owner>/devorchestratormcp:sha-<commit>` images. `deploy/compose.production.yaml` consumes that immutable image and an external/managed PostgreSQL connection string; it does not bundle the production database.
+
 GitHub webhook requests are HMAC-verified and durably persisted in `github_webhook_inbox`; a hosted worker leases and retries inbox records. `X-GitHub-Delivery` remains the external idempotency key.
 
 Built-in endpoint limits protect the control plane:
 - `/mcp`: 120 requests/minute
 - `/webhooks/github`: 300 requests/minute
 
+## Production operations
+
+Auditor-authenticated endpoints:
+
+```text
+GET  /ops/status
+GET  /metrics
+POST /ops/tasks/{projectKey}/{taskCode}/expire-lease
+POST /ops/projects/{projectKey}/pause
+POST /ops/projects/{projectKey}/resume
+POST /ops/webhooks/{deliveryId}/replay
+```
+
+The metrics surface exports active workers, active/expired task leases and pending/retrying webhook inbox gauges. PostgreSQL dump/restore helpers live in `scripts/backup-postgres.sh` and `scripts/restore-postgres.sh`.
+
 ## Verification
 
-Normal PR CI is hermetic. An explicit `real-github-e2e` workflow is available through `workflow_dispatch` to create a temporary Plan Issue, import it, claim/complete the task lifecycle, post a real review contract, sync it, assert `Done`, and close the Issue.
+Normal PR CI now proves more than compilation:
+
+```text
+.NET restore/build/test
+PostgreSQL 17 migrations
+Docker image build and real startup
+health/readiness
+Auditor-only ops/metrics
+service restart recovery
+PostgreSQL pg_dump -> fresh database pg_restore
+migration-history verification
+```
+
+An explicit `real-github-e2e` workflow creates real GitHub Issue/comment contracts and proves the plan/review lifecycle. After a public HTTPS deployment exists, `live-production-proof` verifies the live endpoint and signed webhook path without changing application code.
 
 ## Design docs
 
@@ -192,6 +226,7 @@ Normal PR CI is hermetic. An explicit `real-github-e2e` workflow is available th
 - `docs/PHASE3_PRODUCTION_ORCHESTRATION.md`
 - `docs/PHASE4_DATABASE_FIRST.md`
 - `docs/PHASE5_MULTIWORKER_RUNTIME.md`
+- `docs/PHASE6_PRODUCTION_PROOF.md`
 - `docs/CODEX_SETUP.md`
 - `AGENTS.md`
 - `prompts/architect.md`

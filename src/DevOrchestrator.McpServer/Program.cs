@@ -2,6 +2,7 @@ using System.Threading.RateLimiting;
 using DevOrchestrator.Application;
 using DevOrchestrator.Infrastructure;
 using DevOrchestrator.Infrastructure.Persistence;
+using DevOrchestrator.McpServer.Operations;
 using DevOrchestrator.McpServer.Security;
 using DevOrchestrator.McpServer.Webhooks;
 using Microsoft.AspNetCore.RateLimiting;
@@ -90,6 +91,7 @@ app.MapGet("/readyz", async (OrchestratorDbContext dbContext, CancellationToken 
         }, statusCode: StatusCodes.Status503ServiceUnavailable);
 });
 
+app.MapOperationsEndpoints();
 app.MapGitHubWebhook().RequireRateLimiting("webhook");
 app.MapMcp("/mcp").RequireRateLimiting("mcp");
 

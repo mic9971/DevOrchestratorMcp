@@ -24,9 +24,9 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: "8.0.x"
 
@@ -47,12 +47,33 @@ jobs:
           DEVORCHESTRATOR_POSTGRES_TEST: "Host=127.0.0.1;Port=5432;Database=devorchestrator_test;Username=devorchestrator;Password=devorchestrator"
         run: dotnet test DevOrchestratorMcp.sln -c Release --no-build
 
-      - name: Validate production compose
+      - name: Validate local production-like compose
         env:
           POSTGRES_PASSWORD: ci-postgres-password
-          DEVORCHESTRATOR_ARCHITECT_KEY: ci-architect-key
-          DEVORCHESTRATOR_IMPLEMENTER_KEY: ci-implementer-key
-          DEVORCHESTRATOR_AUDITOR_KEY: ci-auditor-key
+          DEVORCHESTRATOR_ARCHITECT_KEY: ci-architect-key-0123456789
+          DEVORCHESTRATOR_IMPLEMENTER_KEY: ci-implementer-key-0123456789
+          DEVORCHESTRATOR_AUDITOR_KEY: ci-auditor-key-0123456789
           GITHUB_TOKEN: ci-github-token
-          GITHUB_WEBHOOK_SECRET: ci-webhook-secret
+          GITHUB_WEBHOOK_SECRET: ci-webhook-secret-0123456789
         run: docker compose -f compose.yaml config --quiet
+
+      - name: Validate managed-PostgreSQL production compose
+        env:
+          DEVORCHESTRATOR_IMAGE: ghcr.io/mic9971/devorchestratormcp:sha-ci
+          DEVORCHESTRATOR_DATABASE_URL: "Host=postgres.example;Port=5432;Database=devorchestrator;Username=devorchestrator;Password=ci;SSL Mode=Require"
+          DEVORCHESTRATOR_ALLOWED_HOSTS: orchestrator.example.com
+          DEVORCHESTRATOR_ARCHITECT_KEY: ci-architect-key-0123456789
+          DEVORCHESTRATOR_IMPLEMENTER_KEY: ci-implementer-key-0123456789
+          DEVORCHESTRATOR_AUDITOR_KEY: ci-auditor-key-0123456789
+          GITHUB_WEBHOOK_SECRET: ci-webhook-secret-0123456789
+        run: docker compose -f deploy/compose.production.yaml config --quiet
+
+      - name: Production runtime and recovery proof
+        env:
+          POSTGRES_PASSWORD: ci-postgres-password
+          DEVORCHESTRATOR_ARCHITECT_KEY: ci-architect-key-0123456789
+          DEVORCHESTRATOR_IMPLEMENTER_KEY: ci-implementer-key-0123456789
+          DEVORCHESTRATOR_AUDITOR_KEY: ci-auditor-key-0123456789
+          GITHUB_TOKEN: ci-github-token
+          GITHUB_WEBHOOK_SECRET: ci-webhook-secret-0123456789
+        run: bash scripts/production-proof.sh

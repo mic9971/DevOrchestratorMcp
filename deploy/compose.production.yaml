@@ -1,0 +1,39 @@
+services:
+  db-migrate:
+    image: "${DEVORCHESTRATOR_IMAGE:?set DEVORCHESTRATOR_IMAGE}"
+    command: ["migrate"]
+    environment: &app-env
+      Database__Provider: postgres
+      ConnectionStrings__Orchestrator: "${DEVORCHESTRATOR_DATABASE_URL:?set DEVORCHESTRATOR_DATABASE_URL}"
+      Security__RequireAuthentication: "true"
+      Security__ArchitectKey: "${DEVORCHESTRATOR_ARCHITECT_KEY:?set DEVORCHESTRATOR_ARCHITECT_KEY}"
+      Security__ArchitectPreviousKey: "${DEVORCHESTRATOR_ARCHITECT_PREVIOUS_KEY:-}"
+      Security__ImplementerKey: "${DEVORCHESTRATOR_IMPLEMENTER_KEY:?set DEVORCHESTRATOR_IMPLEMENTER_KEY}"
+      Security__ImplementerPreviousKey: "${DEVORCHESTRATOR_IMPLEMENTER_PREVIOUS_KEY:-}"
+      Security__AuditorKey: "${DEVORCHESTRATOR_AUDITOR_KEY:?set DEVORCHESTRATOR_AUDITOR_KEY}"
+      Security__AuditorPreviousKey: "${DEVORCHESTRATOR_AUDITOR_PREVIOUS_KEY:-}"
+      GitHub__Token: "${GITHUB_TOKEN:-}"
+      GitHub__AppId: "${GITHUB_APP_ID:-}"
+      GitHub__InstallationId: "${GITHUB_INSTALLATION_ID:-}"
+      GitHub__PrivateKeyPem: "${GITHUB_APP_PRIVATE_KEY_PEM:-}"
+      GitHub__WebhookSecret: "${GITHUB_WEBHOOK_SECRET:?set GITHUB_WEBHOOK_SECRET}"
+      AllowedHosts: "${DEVORCHESTRATOR_ALLOWED_HOSTS:?set DEVORCHESTRATOR_ALLOWED_HOSTS}"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "${OTEL_EXPORTER_OTLP_ENDPOINT:-}"
+    restart: "no"
+
+  dev-orchestrator:
+    image: "${DEVORCHESTRATOR_IMAGE:?set DEVORCHESTRATOR_IMAGE}"
+    depends_on:
+      db-migrate:
+        condition: service_completed_successfully
+    ports:
+      - "${DEVORCHESTRATOR_PORT:-5058}:8080"
+    environment:
+      <<: *app-env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8080/healthz >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
