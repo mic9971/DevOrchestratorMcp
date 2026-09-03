@@ -40,7 +40,11 @@ public static class ControlPlaneEndpointExtensions
 
         var webhookCounts = await db.GitHubWebhookInbox
             .AsNoTracking()
-            .GroupBy(x => x.CompletedAtUtc == null ? (x.AttemptCount > 1 ? "retrying" : "pending") : "completed")
+            .GroupBy(x => x.DeadLetteredAtUtc != null
+                ? "dead-lettered"
+                : x.CompletedAtUtc != null
+                    ? "completed"
+                    : x.AttemptCount > 1 ? "retrying" : "pending")
             .Select(x => new { State = x.Key, Count = x.Count() })
             .ToListAsync(cancellationToken);
 
@@ -143,7 +147,6 @@ public static class ControlPlaneEndpointExtensions
         if (parsedStatus.HasValue)
             query = query.Where(x => x.task.Status == parsedStatus.Value);
 
-        // Project key + task code is a stable provider-independent order. SQLite cannot ORDER BY DateTimeOffset.
         var rows = await query
             .OrderBy(x => x.project.Key)
             .ThenBy(x => x.task.Code)
@@ -246,14 +249,15 @@ public static class ControlPlaneEndpointExtensions
         var skip = Math.Max(0, offset ?? 0);
         var take = Math.Clamp(limit ?? DefaultPageSize, 1, MaxPageSize);
         var normalizedState = string.IsNullOrWhiteSpace(state) ? "pending" : state.Trim().ToLowerInvariant();
-        if (normalizedState is not ("pending" or "retrying" or "completed" or "all"))
+        if (normalizedState is not ("pending" or "retrying" or "dead-lettered" or "completed" or "all"))
             return Results.BadRequest(new { error = "webhook.invalid_state", state });
 
         var query = db.GitHubWebhookInbox.AsNoTracking().AsQueryable();
         query = normalizedState switch
         {
-            "pending" => query.Where(x => x.CompletedAtUtc == null && x.AttemptCount <= 1),
-            "retrying" => query.Where(x => x.CompletedAtUtc == null && x.AttemptCount > 1),
+            "pending" => query.Where(x => x.CompletedAtUtc == null && x.DeadLetteredAtUtc == null && x.AttemptCount <= 1),
+            "retrying" => query.Where(x => x.CompletedAtUtc == null && x.DeadLetteredAtUtc == null && x.AttemptCount > 1),
+            "dead-lettered" => query.Where(x => x.DeadLetteredAtUtc != null),
             "completed" => query.Where(x => x.CompletedAtUtc != null),
             _ => query
         };
@@ -274,6 +278,7 @@ public static class ControlPlaneEndpointExtensions
                 x.NextAttemptAtUtc,
                 x.LeaseExpiresAtUtc,
                 x.CompletedAtUtc,
+                x.DeadLetteredAtUtc,
                 x.LastError
             })
             .ToListAsync(cancellationToken);
@@ -325,8 +330,6 @@ public static class ControlPlaneEndpointExtensions
             x.taskEvent.CreatedAtUtc
         });
 
-        // PostgreSQL performs the bounded chronological page in SQL. SQLite is local-dev only and
-        // cannot sort DateTimeOffset, so it materializes the filtered audit set before sorting.
         var isSqlite = db.Database.ProviderName?.Contains("Sqlite", StringComparison.OrdinalIgnoreCase) == true;
         var rows = isSqlite
             ? (await projected.ToListAsync(cancellationToken))
