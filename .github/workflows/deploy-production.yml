@@ -1,0 +1,84 @@
+name: deploy-production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Immutable GHCR image, for example ghcr.io/mic9971/devorchestratormcp:sha-<commit>
+        required: true
+        type: string
+      base_url:
+        description: Public HTTPS URL to verify after deployment
+        required: true
+        type: string
+      deploy_path:
+        description: Absolute path of the DevOrchestratorMcp checkout on the server
+        required: false
+        default: /opt/devorchestrator
+        type: string
+
+permissions:
+  contents: read
+
+environment: production
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate immutable deployment inputs
+        env:
+          IMAGE: ${{ inputs.image }}
+          BASE_URL: ${{ inputs.base_url }}
+          DEPLOY_PATH: ${{ inputs.deploy_path }}
+        run: |
+          case "$IMAGE" in
+            ghcr.io/*:sha-*) ;;
+            *) echo "image must be an immutable GHCR sha-* tag" >&2; exit 1 ;;
+          esac
+          case "$BASE_URL" in
+            https://*) ;;
+            *) echo "base_url must use HTTPS" >&2; exit 1 ;;
+          esac
+          case "$DEPLOY_PATH" in
+            /*) ;;
+            *) echo "deploy_path must be absolute" >&2; exit 1 ;;
+          esac
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.DEVORCHESTRATOR_PRODUCTION_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.DEVORCHESTRATOR_PRODUCTION_SSH_KNOWN_HOSTS }}
+        run: |
+          test -n "$SSH_PRIVATE_KEY"
+          test -n "$SSH_KNOWN_HOSTS"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Pull image, migrate and restart
+        env:
+          SSH_HOST: ${{ secrets.DEVORCHESTRATOR_PRODUCTION_SSH_HOST }}
+          SSH_USER: ${{ secrets.DEVORCHESTRATOR_PRODUCTION_SSH_USER }}
+          IMAGE: ${{ inputs.image }}
+          DEPLOY_PATH: ${{ inputs.deploy_path }}
+        run: |
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          ssh -i ~/.ssh/id_ed25519 "$SSH_USER@$SSH_HOST" \
+            "set -euo pipefail; cd '$DEPLOY_PATH'; git fetch origin main; git checkout main; git pull --ff-only origin main; test -f deploy/.env.production; DEVORCHESTRATOR_IMAGE='$IMAGE' docker compose --env-file deploy/.env.production -f deploy/compose.production.yaml pull; DEVORCHESTRATOR_IMAGE='$IMAGE' docker compose --env-file deploy/.env.production -f deploy/compose.production.yaml run --rm db-migrate; DEVORCHESTRATOR_IMAGE='$IMAGE' docker compose --env-file deploy/.env.production -f deploy/compose.production.yaml up -d; for i in \$(seq 1 30); do curl --fail --silent http://127.0.0.1:5058/readyz >/dev/null && exit 0; sleep 2; done; docker compose --env-file deploy/.env.production -f deploy/compose.production.yaml logs dev-orchestrator; exit 1"
+
+      - name: Verify public deployment
+        env:
+          BASE_URL: ${{ inputs.base_url }}
+          AUDITOR_KEY: ${{ secrets.DEVORCHESTRATOR_AUDITOR_KEY }}
+        run: |
+          curl --fail --show-error --silent --max-time 20 "$BASE_URL/healthz"
+          curl --fail --show-error --silent --max-time 20 "$BASE_URL/readyz"
+          test -n "$AUDITOR_KEY"
+          curl --fail --show-error --silent --max-time 20 \
+            -H "X-DevOrchestrator-Key: $AUDITOR_KEY" \
+            "$BASE_URL/ops/status" | grep -q '"status":"ok"'
