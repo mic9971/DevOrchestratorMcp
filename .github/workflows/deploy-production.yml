@@ -20,12 +20,11 @@ on:
 permissions:
   contents: read
 
-environment: production
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    environment: production
     steps:
       - name: Validate immutable deployment inputs
         env:
