@@ -20,12 +20,13 @@ The MCP server is deliberately **not** an AI agent. It stores project/task state
 - SQLite for zero-infrastructure local development
 - PostgreSQL for shared/production deployment
 - Versioned EF Core migrations with an explicit migration process
-- Signed GitHub webhook ingestion with durable database inbox and retry worker
+- Signed GitHub webhook ingestion with durable inbox, bounded retry and replayable dead-letter state
 - Server-side machine Architect / Implementer / Auditor authorization
 - Multi-worker task lease, heartbeat, expiry, reclaim and manual recovery
 - Identity-aware security audit for privileged operations
 - OpenTelemetry tracing baseline + authenticated Prometheus operational gauges
 - Immutable GHCR release image and vendor-neutral production Compose
+- Public HTTPS live-proof, hourly monitor and optional immutable SSH deploy workflows
 - PostgreSQL logical backup/restore recovery drill
 - Domain, application, database, security, HTTP, runtime and architecture tests
 
@@ -65,6 +66,8 @@ GitHub review contract (`devorchestrator.review.v1`)
 ```
 
 If a worker disappears, its task can be reclaimed after lease expiry. An Auditor can also expire a stuck lease immediately without deleting ownership/history. A passing review promotes dependent `Draft` tasks to `Ready` atomically when all dependencies are complete.
+
+Webhook processing uses bounded retry. Poison deliveries are retained as dead-lettered records with their last error and require an explicit Auditor replay after the underlying problem is fixed.
 
 ## Identity boundary
 
@@ -133,6 +136,8 @@ dotnet run --project src/DevOrchestrator.McpServer -- migrate
 ASPNETCORE_URLS=http://127.0.0.1:5058 dotnet run --project src/DevOrchestrator.McpServer
 ```
 
+For Docker Desktop on macOS, `docs/PRODUCTION_SETUP.md` includes a production-like local path using PostgreSQL and Docker Compose before exposing anything publicly.
+
 Endpoints:
 
 ```text
@@ -175,6 +180,7 @@ Security__ArchitectKey=...
 Security__ImplementerKey=...
 Security__AuditorKey=...
 GitHub__WebhookSecret=...
+GitHub__WebhookMaxAttempts=8
 ```
 
 Static credential rotation overlap remains supported:
@@ -234,11 +240,12 @@ Current migration sequence:
 202609020002_TaskWorkerLeases
 202609020003_DurableWebhookInbox
 202609020004_IdentityGovernance
+202609030001_WebhookDeadLetter
 ```
 
-For production, `.github/workflows/release-image.yml` publishes immutable `ghcr.io/<owner>/devorchestratormcp:sha-<commit>` images. `deploy/compose.production.yaml` consumes that immutable image and an external/managed PostgreSQL connection string; it does not bundle the production database.
+For production, `.github/workflows/release-image.yml` publishes immutable `ghcr.io/<owner>/devorchestratormcp:sha-<commit>` images. `deploy/compose.production.yaml` consumes that immutable image and an external/managed PostgreSQL connection string; it does not bundle the production database. The production host port is bound to `127.0.0.1` so a reverse proxy such as the supplied `deploy/Caddyfile.example` is the intended public HTTPS ingress.
 
-GitHub webhook requests are HMAC-verified and durably persisted in `github_webhook_inbox`; a hosted worker leases and retries inbox records. `X-GitHub-Delivery` remains the external idempotency key.
+GitHub webhook requests are HMAC-verified and durably persisted in `github_webhook_inbox`; a hosted worker leases, retries and eventually dead-letters poisoned records. `X-GitHub-Delivery` remains the external idempotency key.
 
 Built-in endpoint limits protect the control plane:
 - `/mcp`: 120 requests/minute
@@ -252,7 +259,7 @@ The built-in `/control` UI has operator views:
 Overview -> Projects -> Tasks -> Workers -> Webhooks -> Audit -> Governance
 ```
 
-Task inspection includes acceptance criteria, dependencies, evidence, reviews, recent events, Git branch/commit/PR metadata and lease ownership. List APIs are no-tracking, directly projected and paginated; task detail history is bounded.
+Task inspection includes acceptance criteria, dependencies, evidence, reviews, recent events, Git branch/commit/PR metadata and lease ownership. Webhook operations distinguish Pending, Retrying, Dead-lettered and Completed deliveries. List APIs are no-tracking, directly projected and paginated; task detail history is bounded.
 
 `/control/governance.html` is a human Admin surface for:
 
@@ -279,7 +286,15 @@ POST /ops/webhooks/{deliveryId}/replay
 
 Privileged mutations record identity-aware security events such as `github:<login>`, `credential:<id>` or `config:auditor`, including before/after context where appropriate.
 
-The metrics surface exports active workers, active/expired task leases and pending/retrying webhook inbox gauges. PostgreSQL dump/restore helpers live in `scripts/backup-postgres.sh` and `scripts/restore-postgres.sh`.
+The metrics surface exports active workers/leases, pending/retrying/dead-lettered webhooks, durable webhook retry totals, task reclaim totals and manual lease-expiry totals. PostgreSQL dump/restore helpers live in `scripts/backup-postgres.sh` and `scripts/restore-postgres.sh`.
+
+Phase 9 adds three optional operational workflows:
+
+```text
+live-production-proof  -> manual public HTTPS + real GitHub/MCP lifecycle proof
+production-monitor     -> hourly liveness/readiness/OAuth/ops/DLQ/lease/backlog gates
+deploy-production      -> manual immutable GHCR image deploy to a prepared SSH host
+```
 
 ## Verification
 
@@ -287,20 +302,22 @@ Normal PR CI proves more than compilation:
 
 ```text
 .NET restore/build/test
-PostgreSQL 17 migrations
+PostgreSQL 17 migrations including WebhookDeadLetter
 SQLite migration compatibility
+webhook DLQ/replay regression tests
 machine credential hash/revoke security tests
 Docker image build and real startup
 health/readiness
 control-plane + governance static assets
-human-login-disabled behavior when OAuth is not configured
 Auditor machine auth + Admin separation
 service restart recovery
 PostgreSQL pg_dump -> fresh database pg_restore
 migration-history verification
 ```
 
-An explicit `real-github-e2e` workflow creates real GitHub Issue/comment contracts and proves the plan/review lifecycle. After a public HTTPS deployment exists, `live-production-proof` verifies the live endpoint and signed webhook path without changing application code. A real GitHub human login additionally requires a deployed HTTPS host and OAuth App secrets, so that external proof is intentionally not coupled to hermetic PR CI.
+An explicit `real-github-e2e` workflow creates real GitHub Issue/comment contracts against an opt-in repository. After a public HTTPS deployment exists, `live-production-proof` additionally performs public health/auth/webhook checks and a real GitHub Issue → webhook → remote MCP synthetic worker → branch/commit/PR → review comment → webhook → Done lifecycle, plus multi-worker claim/recovery proof.
+
+The live harness is deliberately labeled **synthetic MCP worker proof**. It does not claim that an external Codex executable was launched. Public production is also not considered verified merely because hermetic CI passes; the live workflow must actually succeed against the deployed HTTPS endpoint.
 
 ## Design docs
 
@@ -313,6 +330,8 @@ An explicit `real-github-e2e` workflow creates real GitHub Issue/comment contrac
 - `docs/PHASE6_PRODUCTION_PROOF.md`
 - `docs/PHASE7_CONTROL_PLANE.md`
 - `docs/PHASE8_IDENTITY_GOVERNANCE.md`
+- `docs/PHASE9_LIVE_PRODUCTION_PROOF.md`
+- `docs/PRODUCTION_SETUP.md`
 - `docs/CODEX_SETUP.md`
 - `AGENTS.md`
 - `prompts/architect.md`
