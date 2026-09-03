@@ -31,7 +31,7 @@ services:
       db-migrate:
         condition: service_completed_successfully
     ports:
-      - "${DEVORCHESTRATOR_PORT:-5058}:8080"
+      - "127.0.0.1:${DEVORCHESTRATOR_PORT:-5058}:8080"
     environment:
       <<: *app-env
     restart: unless-stopped
