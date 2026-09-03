@@ -42,6 +42,7 @@ services:
       Security__AuditorKey: "${DEVORCHESTRATOR_AUDITOR_KEY}"
       GitHub__Token: "${GITHUB_TOKEN}"
       GitHub__WebhookSecret: "${GITHUB_WEBHOOK_SECRET}"
+      GitHub__WebhookMaxAttempts: "${GITHUB_WEBHOOK_MAX_ATTEMPTS:-8}"
       AllowedHosts: "${DEVORCHESTRATOR_ALLOWED_HOSTS:-localhost;127.0.0.1}"
 
 volumes:
