@@ -27,6 +27,7 @@ public sealed class GitHubWebhookInboxItem
     public DateTime NextAttemptAtUtc { get; private set; }
     public DateTime? LeaseExpiresAtUtc { get; private set; }
     public DateTime? CompletedAtUtc { get; private set; }
+    public DateTime? DeadLetteredAtUtc { get; private set; }
     public string? LastError { get; private set; }
 
     public static GitHubWebhookInboxItem Create(GitHubWebhookNotification notification, DateTimeOffset receivedAtUtc)
@@ -38,6 +39,7 @@ public sealed class GitHubWebhookInboxItem
     public void Requeue(DateTimeOffset nowUtc)
     {
         CompletedAtUtc = null;
+        DeadLetteredAtUtc = null;
         LeaseExpiresAtUtc = null;
         NextAttemptAtUtc = nowUtc.UtcDateTime;
         LastError = null;
