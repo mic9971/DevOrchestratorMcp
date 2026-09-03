@@ -27,17 +27,17 @@ public sealed class LiveProductionWorkflowTests
         using var github = CreateGitHubClient(config.GitHubToken);
         await using var architect = await CreateMcpClientAsync(config.BaseUrl, config.ArchitectKey, cancellationToken);
         await using var implementer = await CreateMcpClientAsync(config.BaseUrl, config.ImplementerKey, cancellationToken);
-        using var auditorHttp = CreateOrchestratorHttpClient(config.BaseUrl, config.AuditorKey);
+        using var auditor = CreateOrchestratorHttpClient(config.BaseUrl, config.AuditorKey);
 
         var defaultBranch = await GetDefaultBranchAsync(github, coordinates, cancellationToken);
         var projectKey = await EnsureProjectAsync(
             architect,
-            auditorHttp,
+            auditor,
             config.ProjectKey,
             config.RepositoryUrl,
             defaultBranch,
             cancellationToken);
-        await EnsureNoClaimableBacklogAsync(architect, projectKey, cancellationToken);
+        await EnsureIdleProjectAsync(architect, projectKey, cancellationToken);
 
         var suffix = UniqueSuffix();
         var taskCode = $"P9-E2E-{suffix}".ToUpperInvariant();
@@ -53,17 +53,16 @@ public sealed class LiveProductionWorkflowTests
                 coordinates,
                 projectKey,
                 $"DevOrchestrator Phase 9 live E2E {suffix}",
-                [new PlanTask(taskCode, "Live GitHub pull-request proof", "Prove automatic webhook import, remote MCP execution, real GitHub evidence and automatic review sync.")],
+                [new PlanTask(taskCode, "Live GitHub pull-request proof", "Prove webhook import, remote MCP execution, GitHub evidence and automatic review sync.")],
                 cancellationToken);
 
-            var ready = await WaitForTaskAsync(
+            await WaitForTaskAsync(
                 architect,
                 projectKey,
                 taskCode,
                 task => task.Status == "Ready",
                 "GitHub issue webhook did not import the task as Ready.",
                 cancellationToken);
-            Assert.Equal(taskCode, ready.Code);
 
             var claimed = await CallAsync<TaskDto>(implementer, "task_claim_next", new Dictionary<string, object?>
             {
@@ -73,7 +72,6 @@ public sealed class LiveProductionWorkflowTests
                 ["actor"] = "phase9:implementer"
             }, cancellationToken);
             AssertSuccess(claimed);
-            Assert.NotNull(claimed.Data);
             Assert.Equal(taskCode, claimed.Data!.Code);
             Assert.Equal(workerId, claimed.Data.LeaseOwner);
 
@@ -106,7 +104,7 @@ public sealed class LiveProductionWorkflowTests
                 ["filesChanged"] = new[] { gitEvidence.MarkerPath },
                 ["tests"] = new[] { "Phase 9 live MCP/GitHub lifecycle" },
                 ["commands"] = new[] { "synthetic live worker marker commit" },
-                ["notes"] = "Synthetic MCP worker proof; no external Codex executable is claimed by this test.",
+                ["notes"] = "Synthetic MCP worker proof; this test does not claim an external Codex executable was launched.",
                 ["actor"] = "phase9:implementer"
             }, cancellationToken);
             AssertSuccess(evidence);
@@ -134,7 +132,7 @@ public sealed class LiveProductionWorkflowTests
             Assert.NotEmpty(completed.Evidence);
             Assert.Contains(completed.Reviews, review => review.Decision == "Pass");
 
-            using var detail = await auditorHttp.GetAsync(
+            using var detail = await auditor.GetAsync(
                 $"control/api/tasks/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(taskCode)}",
                 cancellationToken);
             detail.EnsureSuccessStatusCode();
@@ -145,10 +143,10 @@ public sealed class LiveProductionWorkflowTests
         finally
         {
             if (pullRequestNumber > 0)
-                await TryClosePullRequestAsync(github, coordinates, pullRequestNumber, cancellationToken);
-            await TryDeleteBranchAsync(github, coordinates, branch, cancellationToken);
+                await TryClosePullRequestAsync(github, coordinates, pullRequestNumber);
+            await TryDeleteBranchAsync(github, coordinates, branch);
             if (issueNumber > 0)
-                await TryCloseIssueAsync(github, coordinates, issueNumber, cancellationToken);
+                await TryCloseIssueAsync(github, coordinates, issueNumber);
         }
     }
 
@@ -163,23 +161,25 @@ public sealed class LiveProductionWorkflowTests
         var coordinates = ParseRepository(config.RepositoryUrl);
         using var github = CreateGitHubClient(config.GitHubToken);
         await using var architect = await CreateMcpClientAsync(config.BaseUrl, config.ArchitectKey, cancellationToken);
-        await using var implementer = await CreateMcpClientAsync(config.BaseUrl, config.ImplementerKey, cancellationToken);
-        using var auditorHttp = CreateOrchestratorHttpClient(config.BaseUrl, config.AuditorKey);
+        await using var worker1 = await CreateMcpClientAsync(config.BaseUrl, config.ImplementerKey, cancellationToken);
+        await using var worker2 = await CreateMcpClientAsync(config.BaseUrl, config.ImplementerKey, cancellationToken);
+        await using var worker3 = await CreateMcpClientAsync(config.BaseUrl, config.ImplementerKey, cancellationToken);
+        await using var recoveryWorker = await CreateMcpClientAsync(config.BaseUrl, config.ImplementerKey, cancellationToken);
+        using var auditor = CreateOrchestratorHttpClient(config.BaseUrl, config.AuditorKey);
 
         var defaultBranch = await GetDefaultBranchAsync(github, coordinates, cancellationToken);
         var projectKey = await EnsureProjectAsync(
             architect,
-            auditorHttp,
+            auditor,
             config.ProjectKey,
             config.RepositoryUrl,
             defaultBranch,
             cancellationToken);
-        await EnsureNoClaimableBacklogAsync(architect, projectKey, cancellationToken);
+        await EnsureIdleProjectAsync(architect, projectKey, cancellationToken);
 
         var suffix = UniqueSuffix();
         var taskCodes = Enumerable.Range(1, 3).Select(i => $"P9-MW-{suffix}-{i}".ToUpperInvariant()).ToArray();
         var issueNumber = 0;
-        var claimed = new List<TaskDto>();
 
         try
         {
@@ -202,30 +202,30 @@ public sealed class LiveProductionWorkflowTests
                     cancellationToken);
             }
 
-            var claimTasks = Enumerable.Range(1, 3)
-                .Select(i => ClaimWithRetryAsync(implementer, projectKey, $"phase9-worker-{suffix}-{i}", $"devorchestrator/multi/{suffix}/{i}", cancellationToken))
-                .ToArray();
-            var results = await Task.WhenAll(claimTasks);
-            claimed.AddRange(results);
+            var claims = await Task.WhenAll(
+                ClaimWithRetryAsync(worker1, projectKey, $"phase9-worker-{suffix}-1", $"devorchestrator/multi/{suffix}/1", cancellationToken),
+                ClaimWithRetryAsync(worker2, projectKey, $"phase9-worker-{suffix}-2", $"devorchestrator/multi/{suffix}/2", cancellationToken),
+                ClaimWithRetryAsync(worker3, projectKey, $"phase9-worker-{suffix}-3", $"devorchestrator/multi/{suffix}/3", cancellationToken));
 
-            Assert.Equal(3, claimed.Select(x => x.Code).Distinct(StringComparer.Ordinal).Count());
-            Assert.Equal(taskCodes.OrderBy(x => x), claimed.Select(x => x.Code).OrderBy(x => x));
-            Assert.Equal(3, claimed.Select(x => x.LeaseOwner).Distinct(StringComparer.Ordinal).Count());
+            Assert.Equal(3, claims.Select(x => x.Code).Distinct(StringComparer.Ordinal).Count());
+            Assert.Equal(taskCodes.OrderBy(x => x), claims.Select(x => x.Code).OrderBy(x => x));
+            Assert.Equal(3, claims.Select(x => x.LeaseOwner).Distinct(StringComparer.Ordinal).Count());
 
-            foreach (var task in claimed)
+            var workers = new[] { worker1, worker2, worker3 };
+            for (var index = 0; index < claims.Length; index++)
             {
-                var heartbeat = await CallAsync<TaskDto>(implementer, "task_heartbeat", new Dictionary<string, object?>
+                var heartbeat = await CallAsync<TaskDto>(workers[index], "task_heartbeat", new Dictionary<string, object?>
                 {
                     ["projectKey"] = projectKey,
-                    ["taskCode"] = task.Code,
-                    ["workerId"] = task.LeaseOwner,
+                    ["taskCode"] = claims[index].Code,
+                    ["workerId"] = claims[index].LeaseOwner,
                     ["actor"] = "phase9:implementer"
                 }, cancellationToken);
                 AssertSuccess(heartbeat);
             }
 
-            var released = claimed[1];
-            using (var response = await auditorHttp.PostAsync(
+            var released = claims[1];
+            using (var response = await auditor.PostAsync(
                        $"ops/tasks/{Uri.EscapeDataString(projectKey)}/{Uri.EscapeDataString(released.Code)}/expire-lease",
                        null,
                        cancellationToken))
@@ -233,28 +233,28 @@ public sealed class LiveProductionWorkflowTests
                 response.EnsureSuccessStatusCode();
             }
 
-            var recoveryWorker = $"phase9-recovery-{suffix}";
+            var recoveryWorkerId = $"phase9-recovery-{suffix}";
             var recovered = await ClaimWithRetryAsync(
-                implementer,
-                projectKey,
                 recoveryWorker,
+                projectKey,
+                recoveryWorkerId,
                 $"devorchestrator/recovered/{suffix}",
                 cancellationToken);
             Assert.Equal(released.Code, recovered.Code);
-            Assert.Equal(recoveryWorker, recovered.LeaseOwner);
+            Assert.Equal(recoveryWorkerId, recovered.LeaseOwner);
 
             var recoveredDetail = await WaitForTaskAsync(
                 architect,
                 projectKey,
-                recovered.Code,
-                task => task.Status == "InProgress" && task.LeaseOwner == recoveryWorker,
+                released.Code,
+                task => task.Status == "InProgress" && task.LeaseOwner == recoveryWorkerId,
                 "Released task was not reclaimed by the recovery worker.",
                 cancellationToken);
-            Assert.Equal(recoveryWorker, recoveredDetail.LeaseOwner);
+            Assert.Equal(recoveryWorkerId, recoveredDetail.LeaseOwner);
 
             foreach (var taskCode in taskCodes)
             {
-                var blocked = await CallAsync<TaskDto>(implementer, "task_block", new Dictionary<string, object?>
+                var blocked = await CallAsync<TaskDto>(worker1, "task_block", new Dictionary<string, object?>
                 {
                     ["projectKey"] = projectKey,
                     ["taskCode"] = taskCode,
@@ -264,7 +264,7 @@ public sealed class LiveProductionWorkflowTests
                 AssertSuccess(blocked);
             }
 
-            using var metrics = await auditorHttp.GetAsync("metrics", cancellationToken);
+            using var metrics = await auditor.GetAsync("metrics", cancellationToken);
             metrics.EnsureSuccessStatusCode();
             var metricsText = await metrics.Content.ReadAsStringAsync(cancellationToken);
             Assert.Contains("devorchestrator_task_reclaim_total", metricsText, StringComparison.Ordinal);
@@ -273,23 +273,27 @@ public sealed class LiveProductionWorkflowTests
         finally
         {
             if (issueNumber > 0)
-                await TryCloseIssueAsync(github, coordinates, issueNumber, cancellationToken);
+                await TryCloseIssueAsync(github, coordinates, issueNumber);
         }
     }
 
     private static async Task<string> EnsureProjectAsync(
         McpClient architect,
-        HttpClient auditorHttp,
+        HttpClient auditor,
         string? requestedProjectKey,
         string repositoryUrl,
         string defaultBranch,
         CancellationToken cancellationToken)
     {
-        var projects = await CallAsync<ProjectDto[]>(architect, "project_list", [], cancellationToken);
+        var projects = await CallAsync<ProjectDto[]>(
+            architect,
+            "project_list",
+            new Dictionary<string, object?>(),
+            cancellationToken);
         AssertSuccess(projects);
         var all = projects.Data ?? [];
-        ProjectDto? project;
 
+        ProjectDto? project;
         if (!string.IsNullOrWhiteSpace(requestedProjectKey))
         {
             project = all.SingleOrDefault(x => string.Equals(x.Key, requestedProjectKey.Trim(), StringComparison.OrdinalIgnoreCase));
@@ -323,14 +327,17 @@ public sealed class LiveProductionWorkflowTests
 
         if (!project.IsActive)
         {
-            using var response = await auditorHttp.PostAsync($"ops/projects/{Uri.EscapeDataString(project.Key)}/resume", null, cancellationToken);
+            using var response = await auditor.PostAsync(
+                $"ops/projects/{Uri.EscapeDataString(project.Key)}/resume",
+                null,
+                cancellationToken);
             response.EnsureSuccessStatusCode();
         }
 
         return project.Key;
     }
 
-    private static async Task EnsureNoClaimableBacklogAsync(McpClient architect, string projectKey, CancellationToken cancellationToken)
+    private static async Task EnsureIdleProjectAsync(McpClient architect, string projectKey, CancellationToken cancellationToken)
     {
         foreach (var status in new[] { "Ready", "ChangesRequested", "InProgress" })
         {
@@ -402,7 +409,7 @@ public sealed class LiveProductionWorkflowTests
     {
         var result = await client.CallToolAsync(toolName, arguments, cancellationToken: cancellationToken);
         if (result.IsError == true)
-            throw new InvalidOperationException($"MCP tool '{toolName}' returned protocol error content.");
+            throw new InvalidOperationException($"MCP tool '{toolName}' returned a protocol error.");
         if (!result.StructuredContent.HasValue)
             throw new InvalidOperationException($"MCP tool '{toolName}' did not return structured content.");
 
@@ -445,7 +452,10 @@ public sealed class LiveProductionWorkflowTests
         return client;
     }
 
-    private static async Task<string> GetDefaultBranchAsync(HttpClient github, RepositoryCoordinates coordinates, CancellationToken cancellationToken)
+    private static async Task<string> GetDefaultBranchAsync(
+        HttpClient github,
+        RepositoryCoordinates coordinates,
+        CancellationToken cancellationToken)
     {
         using var response = await github.GetAsync($"repos/{coordinates.Owner}/{coordinates.Repository}", cancellationToken);
         response.EnsureSuccessStatusCode();
@@ -471,7 +481,7 @@ public sealed class LiveProductionWorkflowTests
                 code = task.Code,
                 title = task.Title,
                 objective = task.Objective,
-                acceptanceCriteria = new[] { "Phase 9 live proof reaches the expected terminal state" },
+                acceptanceCriteria = new[] { "Phase 9 live proof reaches the expected state" },
                 priority = "High"
             }).ToArray()
         };
@@ -537,7 +547,6 @@ public sealed class LiveProductionWorkflowTests
         prResponse.EnsureSuccessStatusCode();
         using var prDocument = JsonDocument.Parse(await prResponse.Content.ReadAsStringAsync(cancellationToken));
         return new GitEvidence(
-            branch,
             markerPath,
             commitSha,
             prDocument.RootElement.GetProperty("number").GetInt32(),
@@ -568,7 +577,7 @@ public sealed class LiveProductionWorkflowTests
         response.EnsureSuccessStatusCode();
     }
 
-    private static async Task TryClosePullRequestAsync(HttpClient github, RepositoryCoordinates coordinates, int number, CancellationToken cancellationToken)
+    private static async Task TryClosePullRequestAsync(HttpClient github, RepositoryCoordinates coordinates, int number)
     {
         try
         {
@@ -576,21 +585,23 @@ public sealed class LiveProductionWorkflowTests
             {
                 Content = JsonContent.Create(new { state = "closed" })
             };
-            using var response = await github.SendAsync(request, cancellationToken);
+            using var response = await github.SendAsync(request, CancellationToken.None);
         }
-        catch when (!cancellationToken.IsCancellationRequested) { }
+        catch { }
     }
 
-    private static async Task TryDeleteBranchAsync(HttpClient github, RepositoryCoordinates coordinates, string branch, CancellationToken cancellationToken)
+    private static async Task TryDeleteBranchAsync(HttpClient github, RepositoryCoordinates coordinates, string branch)
     {
         try
         {
-            using var response = await github.DeleteAsync($"repos/{coordinates.Owner}/{coordinates.Repository}/git/refs/heads/{branch}", cancellationToken);
+            using var response = await github.DeleteAsync(
+                $"repos/{coordinates.Owner}/{coordinates.Repository}/git/refs/heads/{branch}",
+                CancellationToken.None);
         }
-        catch when (!cancellationToken.IsCancellationRequested) { }
+        catch { }
     }
 
-    private static async Task TryCloseIssueAsync(HttpClient github, RepositoryCoordinates coordinates, int issueNumber, CancellationToken cancellationToken)
+    private static async Task TryCloseIssueAsync(HttpClient github, RepositoryCoordinates coordinates, int issueNumber)
     {
         try
         {
@@ -598,9 +609,9 @@ public sealed class LiveProductionWorkflowTests
             {
                 Content = JsonContent.Create(new { state = "closed", state_reason = "completed" })
             };
-            using var response = await github.SendAsync(request, cancellationToken);
+            using var response = await github.SendAsync(request, CancellationToken.None);
         }
-        catch when (!cancellationToken.IsCancellationRequested) { }
+        catch { }
     }
 
     private static RepositoryCoordinates ParseRepository(string repositoryUrl)
@@ -609,7 +620,8 @@ public sealed class LiveProductionWorkflowTests
         var parts = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
         if (!uri.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase) || parts.Length != 2)
             throw new InvalidOperationException("Phase 9 live repository must be a github.com owner/repository URL.");
-        return new RepositoryCoordinates(parts[0], parts[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? parts[1][..^4] : parts[1]);
+        var repository = parts[1].EndsWith(".git", StringComparison.OrdinalIgnoreCase) ? parts[1][..^4] : parts[1];
+        return new RepositoryCoordinates(parts[0], repository);
     }
 
     private static string NormalizeRepository(string repositoryUrl)
@@ -622,14 +634,18 @@ public sealed class LiveProductionWorkflowTests
     {
         var coordinates = ParseRepository(repositoryUrl);
         var raw = $"{coordinates.Owner}-{coordinates.Repository}".ToLowerInvariant();
-        return new string(raw.Select(ch => char.IsLetterOrDigit(ch) || ch == '-' ? ch : '-').ToArray());
+        var normalized = new string(raw.Select(ch => char.IsLetterOrDigit(ch) || ch == '-' ? ch : '-').ToArray());
+        return normalized.Length <= 55 ? normalized : normalized[..55];
     }
 
     private static string UniqueSuffix()
-        => (Environment.GetEnvironmentVariable("GITHUB_RUN_ID") ?? Guid.NewGuid().ToString("N"))[..8].ToUpperInvariant();
+    {
+        var source = Environment.GetEnvironmentVariable("GITHUB_RUN_ID") ?? Guid.NewGuid().ToString("N");
+        return source[..Math.Min(8, source.Length)].ToUpperInvariant();
+    }
 
     private sealed record PlanTask(string Code, string Title, string Objective);
-    private sealed record GitEvidence(string Branch, string MarkerPath, string CommitSha, int PullRequestNumber, string PullRequestUrl);
+    private sealed record GitEvidence(string MarkerPath, string CommitSha, int PullRequestNumber, string PullRequestUrl);
     private sealed record RepositoryCoordinates(string Owner, string Repository);
 
     private sealed record LiveConfig(
@@ -652,7 +668,10 @@ public sealed class LiveProductionWorkflowTests
             if (new[] { baseUrl, repositoryUrl, token, architectKey, implementerKey, auditorKey }.Any(string.IsNullOrWhiteSpace))
                 return null;
 
-            var allowHttp = string.Equals(Environment.GetEnvironmentVariable("DEVORCHESTRATOR_LIVE_ALLOW_HTTP"), "true", StringComparison.OrdinalIgnoreCase);
+            var allowHttp = string.Equals(
+                Environment.GetEnvironmentVariable("DEVORCHESTRATOR_LIVE_ALLOW_HTTP"),
+                "true",
+                StringComparison.OrdinalIgnoreCase);
             if (!allowHttp && !baseUrl!.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
                 throw new InvalidOperationException("Phase 9 live proof requires an HTTPS DEVORCHESTRATOR_LIVE_BASE_URL.");
 
