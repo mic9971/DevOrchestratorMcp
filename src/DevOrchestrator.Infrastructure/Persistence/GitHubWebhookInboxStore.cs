@@ -42,6 +42,7 @@ internal sealed class GitHubWebhookInboxStore(OrchestratorDbContext dbContext)
             .AsNoTracking()
             .Where(x =>
                 x.CompletedAtUtc == null &&
+                x.DeadLetteredAtUtc == null &&
                 x.NextAttemptAtUtc <= nowUtc &&
                 (x.LeaseExpiresAtUtc == null || x.LeaseExpiresAtUtc <= nowUtc))
             .OrderBy(x => x.ReceivedAtUtc)
@@ -58,6 +59,7 @@ internal sealed class GitHubWebhookInboxStore(OrchestratorDbContext dbContext)
             .Where(x =>
                 x.DeliveryId == candidateId &&
                 x.CompletedAtUtc == null &&
+                x.DeadLetteredAtUtc == null &&
                 x.NextAttemptAtUtc <= nowUtc &&
                 (x.LeaseExpiresAtUtc == null || x.LeaseExpiresAtUtc <= nowUtc))
             .ExecuteUpdateAsync(
@@ -89,6 +91,7 @@ internal sealed class GitHubWebhookInboxStore(OrchestratorDbContext dbContext)
             .ExecuteUpdateAsync(
                 setters => setters
                     .SetProperty(x => x.CompletedAtUtc, completedUtc)
+                    .SetProperty(x => x.DeadLetteredAtUtc, (DateTime?)null)
                     .SetProperty(x => x.LeaseExpiresAtUtc, (DateTime?)null)
                     .SetProperty(x => x.LastError, (string?)null),
                 cancellationToken);
@@ -100,10 +103,10 @@ internal sealed class GitHubWebhookInboxStore(OrchestratorDbContext dbContext)
         DateTimeOffset nextAttemptAtUtc,
         CancellationToken cancellationToken)
     {
-        var storedError = error.Length <= 4000 ? error : error.Substring(0, 4000);
+        var storedError = TruncateError(error);
         var nextAttemptUtc = nextAttemptAtUtc.UtcDateTime;
         return dbContext.GitHubWebhookInbox
-            .Where(x => x.DeliveryId == deliveryId)
+            .Where(x => x.DeliveryId == deliveryId && x.DeadLetteredAtUtc == null)
             .ExecuteUpdateAsync(
                 setters => setters
                     .SetProperty(x => x.LeaseExpiresAtUtc, (DateTime?)null)
@@ -111,4 +114,25 @@ internal sealed class GitHubWebhookInboxStore(OrchestratorDbContext dbContext)
                     .SetProperty(x => x.LastError, storedError),
                 cancellationToken);
     }
+
+    public Task DeadLetterAsync(
+        string deliveryId,
+        string error,
+        DateTimeOffset deadLetteredAtUtc,
+        CancellationToken cancellationToken)
+    {
+        var storedError = TruncateError(error);
+        var deadLetteredUtc = deadLetteredAtUtc.UtcDateTime;
+        return dbContext.GitHubWebhookInbox
+            .Where(x => x.DeliveryId == deliveryId && x.CompletedAtUtc == null)
+            .ExecuteUpdateAsync(
+                setters => setters
+                    .SetProperty(x => x.DeadLetteredAtUtc, deadLetteredUtc)
+                    .SetProperty(x => x.LeaseExpiresAtUtc, (DateTime?)null)
+                    .SetProperty(x => x.LastError, storedError),
+                cancellationToken);
+    }
+
+    private static string TruncateError(string error)
+        => error.Length <= 4000 ? error : error[..4000];
 }
