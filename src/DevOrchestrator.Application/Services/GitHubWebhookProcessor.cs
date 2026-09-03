@@ -83,12 +83,11 @@ internal sealed class GitHubWebhookProcessor(
 
             if (matches.Length > 1)
             {
-                await deliveries.CompleteAsync(notification.DeliveryId, cancellationToken);
-                return Result<GitHubWebhookProcessResult>.Success(
-                    CreateOutcome(
-                        notification,
-                        "ambiguous_repository",
-                        detail: $"Repository matches multiple active projects: {string.Join(", ", matches.Select(x => x.Key).OrderBy(x => x, StringComparer.Ordinal))}."));
+                await deliveries.AbandonAsync(notification.DeliveryId, cancellationToken);
+                return Result<GitHubWebhookProcessResult>.Failure(
+                    new Error(
+                        "webhook.repository_ambiguous",
+                        $"Repository matches multiple active projects: {string.Join(", ", matches.Select(x => x.Key).OrderBy(x => x, StringComparer.Ordinal))}."));
             }
 
             var project = matches[0];
