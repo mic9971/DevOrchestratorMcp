@@ -133,12 +133,13 @@
     state.projects = projects;
     renderProjectFilters();
     const tasks = dashboard.tasks || {};
-    const attention = Number(tasks.Blocked || 0) + Number(tasks.ChangesRequested || 0) + Number(dashboard.leases?.expired || 0);
+    const webhookAttention = Number(dashboard.webhooks?.retrying || 0) + Number(dashboard.webhooks?.['dead-lettered'] || 0);
+    const attention = Number(tasks.Blocked || 0) + Number(tasks.ChangesRequested || 0) + Number(dashboard.leases?.expired || 0) + webhookAttention;
     $('overview-cards').innerHTML = [
       ['Active projects', dashboard.projects?.active || 0, `${dashboard.projects?.paused || 0} paused`, 'good'],
       ['Tasks tracked', totalTasks(tasks), `${tasks.Done || 0} done`, ''],
       ['Active workers', dashboard.leases?.workers || 0, `${dashboard.leases?.active || 0} live leases`, 'good'],
-      ['Needs attention', attention, `${dashboard.webhooks?.retrying || 0} webhook retries`, attention ? 'warning' : 'good']
+      ['Needs attention', attention, `${dashboard.webhooks?.['dead-lettered'] || 0} dead-lettered · ${dashboard.webhooks?.retrying || 0} retrying`, attention ? 'warning' : 'good']
     ].map(([label, value, detail, tone]) => `<article class="metric ${tone}"><span class="label">${esc(label)}</span><span class="value">${esc(value)}</span><span class="detail">${esc(detail)}</span></article>`).join('');
 
     const pipelineOrder = ['Draft','Ready','InProgress','ReadyForReview','ChangesRequested','Blocked','Done'];
@@ -201,7 +202,7 @@
     $('webhooks-next').disabled = page.nextOffset == null;
     $('webhooks-page').textContent = `${state.webhookOffset + 1}–${state.webhookOffset + page.items.length}`;
     $('webhooks-table').innerHTML = page.items.map(item => {
-      const itemState = item.completedAtUtc ? 'completed' : item.attemptCount > 1 ? 'retrying' : 'pending';
+      const itemState = item.deadLetteredAtUtc ? 'dead-lettered' : item.completedAtUtc ? 'completed' : item.attemptCount > 1 ? 'retrying' : 'pending';
       return `<tr><td><strong>${esc(item.deliveryId)}</strong><small>${esc(item.repositoryUrl)}</small></td><td>${esc(item.eventName)}<small>${esc(item.action)}</small></td><td>#${esc(item.issueNumber)}</td><td>${esc(item.attemptCount)}</td><td>${esc(relative(item.receivedAtUtc))}<small>${esc(item.lastError || '')}</small></td><td>${statusBadge(itemState)}</td><td>${itemState !== 'pending' ? `<button class="ghost compact" data-replay="${esc(item.deliveryId)}">Replay</button>` : ''}</td></tr>`;
     }).join('') || '<tr><td colspan="7"><div class="empty">No webhook deliveries in this state.</div></td></tr>';
   }

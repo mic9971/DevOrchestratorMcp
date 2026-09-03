@@ -4,46 +4,82 @@ on:
   workflow_dispatch:
     inputs:
       base_url:
-        description: Public DevOrchestrator base URL, for example https://orchestrator.example.com
+        description: Public HTTPS DevOrchestrator base URL, for example https://orchestrator.example.com
         required: true
+        type: string
+      repository_url:
+        description: GitHub repository used for live Issue/branch/commit/PR proof; empty uses this repository
+        required: false
+        type: string
+      project_key:
+        description: Optional existing DevOrchestrator project key for the target repository
+        required: false
         type: string
 
 permissions:
-  contents: read
+  contents: write
+  issues: write
+  pull-requests: write
 
 jobs:
-  smoke:
+  live-proof:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - name: Health and readiness
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "8.0.x"
+
+      - name: Restore
+        run: dotnet restore DevOrchestratorMcp.sln
+
+      - name: Build
+        run: dotnet build DevOrchestratorMcp.sln -c Release --no-restore
+
+      - name: Public HTTPS health and readiness
         env:
           BASE_URL: ${{ inputs.base_url }}
         run: |
+          case "$BASE_URL" in
+            https://*) ;;
+            *) echo "base_url must use HTTPS" >&2; exit 1 ;;
+          esac
           curl --fail --show-error --silent "$BASE_URL/healthz"
           curl --fail --show-error --silent "$BASE_URL/readyz"
 
-      - name: Auditor-only operational surface
+      - name: Human OAuth and Auditor operational surface
         env:
           BASE_URL: ${{ inputs.base_url }}
           AUDITOR_KEY: ${{ secrets.DEVORCHESTRATOR_AUDITOR_KEY }}
         run: |
           test -n "$AUDITOR_KEY"
-          code="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/metrics")"
-          test "$code" = "401"
-          curl --fail --show-error --silent \
-            -H "X-DevOrchestrator-Key: $AUDITOR_KEY" \
-            "$BASE_URL/ops/status"
-          curl --fail --show-error --silent \
-            -H "X-DevOrchestrator-Key: $AUDITOR_KEY" \
-            "$BASE_URL/metrics" | grep -q '^devorchestrator_active_workers '
 
-      - name: Signed GitHub webhook ping
+          unauth_metrics="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/metrics")"
+          test "$unauth_metrics" = "401"
+
+          oauth_code="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/auth/login?returnUrl=/control")"
+          test "$oauth_code" = "302"
+
+          curl --fail --show-error --silent \
+            -H "X-DevOrchestrator-Key: $AUDITOR_KEY" \
+            "$BASE_URL/ops/status" | grep -q '"status":"ok"'
+
+          metrics="$(curl --fail --show-error --silent \
+            -H "X-DevOrchestrator-Key: $AUDITOR_KEY" \
+            "$BASE_URL/metrics")"
+          grep -q '^devorchestrator_active_workers ' <<<"$metrics"
+          grep -q '^devorchestrator_webhook_dead_lettered ' <<<"$metrics"
+          grep -q '^devorchestrator_task_reclaim_total ' <<<"$metrics"
+
+      - name: Signed webhook ingress proof
         env:
           BASE_URL: ${{ inputs.base_url }}
           WEBHOOK_SECRET: ${{ secrets.GITHUB_WEBHOOK_SECRET }}
         run: |
           test -n "$WEBHOOK_SECRET"
-          payload='{"zen":"phase6-production-proof"}'
+          payload='{"zen":"phase9-live-production-proof"}'
           signature="$(PAYLOAD="$payload" python3 - <<'PY'
           import hashlib, hmac, os
           print('sha256=' + hmac.new(os.environ['WEBHOOK_SECRET'].encode(), os.environ['PAYLOAD'].encode(), hashlib.sha256).hexdigest())
@@ -53,6 +89,20 @@ jobs:
             -X POST "$BASE_URL/webhooks/github" \
             -H "Content-Type: application/json" \
             -H "X-GitHub-Event: ping" \
-            -H "X-GitHub-Delivery: phase6-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            -H "X-GitHub-Delivery: phase9-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
             -H "X-Hub-Signature-256: $signature" \
             --data "$payload"
+
+      - name: Live Issue to MCP worker to PR to review to Done
+        env:
+          DEVORCHESTRATOR_LIVE_BASE_URL: ${{ inputs.base_url }}
+          DEVORCHESTRATOR_LIVE_REPOSITORY_URL: ${{ inputs.repository_url || format('https://github.com/{0}', github.repository) }}
+          DEVORCHESTRATOR_LIVE_PROJECT_KEY: ${{ inputs.project_key }}
+          DEVORCHESTRATOR_LIVE_GITHUB_TOKEN: ${{ secrets.DEVORCHESTRATOR_LIVE_GITHUB_TOKEN || github.token }}
+          DEVORCHESTRATOR_LIVE_ARCHITECT_KEY: ${{ secrets.DEVORCHESTRATOR_ARCHITECT_KEY }}
+          DEVORCHESTRATOR_LIVE_IMPLEMENTER_KEY: ${{ secrets.DEVORCHESTRATOR_IMPLEMENTER_KEY }}
+          DEVORCHESTRATOR_LIVE_AUDITOR_KEY: ${{ secrets.DEVORCHESTRATOR_AUDITOR_KEY }}
+        run: >-
+          dotnet test tests/DevOrchestrator.Architecture.Tests/DevOrchestrator.Architecture.Tests.csproj
+          -c Release --no-build
+          --filter FullyQualifiedName~LiveProductionWorkflowTests

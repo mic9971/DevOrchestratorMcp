@@ -100,6 +100,28 @@ public sealed class GitHubWebhookProcessorTests
         Assert.Equal(2, bridge.ImportCalls);
     }
 
+    [Fact]
+    public async Task Multiple_active_projects_for_same_repository_fail_and_remain_retryable()
+    {
+        var firstProject = Project("novel-platform");
+        var secondProject = Project("novel-platform-copy");
+        var projects = new StubProjectService(firstProject, secondProject);
+        var bridge = new StubBridgeService();
+        var deliveries = new InMemoryDeliveryStore();
+        var processor = new GitHubWebhookProcessor(projects, bridge, deliveries);
+        var notification = Notification("delivery-ambiguous", "issues", "opened");
+
+        var first = await processor.ProcessAsync(notification, CancellationToken.None);
+        var second = await processor.ProcessAsync(notification, CancellationToken.None);
+
+        Assert.True(first.IsFailure);
+        Assert.Equal("webhook.repository_ambiguous", first.Error.Code);
+        Assert.Contains("novel-platform", first.Error.Message, StringComparison.Ordinal);
+        Assert.Contains("novel-platform-copy", first.Error.Message, StringComparison.Ordinal);
+        Assert.True(second.IsFailure);
+        Assert.Equal(0, bridge.ImportCalls);
+    }
+
     private static GitHubWebhookNotification Notification(
         string deliveryId,
         string eventName,
@@ -112,15 +134,17 @@ public sealed class GitHubWebhookProcessorTests
             144);
 
     private static StubProjectService CreateProjects()
-        => new(
-            new ProjectDto(
-                "novel-platform",
-                "NovelPlatformArchitecture",
-                "https://github.com/mic9971/NovelPlatformArchitecture.git",
-                "main",
-                true));
+        => new(Project("novel-platform"));
 
-    private sealed class StubProjectService(ProjectDto project) : IProjectService
+    private static ProjectDto Project(string key)
+        => new(
+            key,
+            "NovelPlatformArchitecture",
+            "https://github.com/mic9971/NovelPlatformArchitecture.git",
+            "main",
+            true);
+
+    private sealed class StubProjectService(params ProjectDto[] projects) : IProjectService
     {
         public Task<Result<ProjectDto>> RegisterAsync(
             string key,
@@ -129,16 +153,16 @@ public sealed class GitHubWebhookProcessorTests
             string defaultBranch,
             string actor,
             CancellationToken cancellationToken)
-            => Task.FromResult(Result<ProjectDto>.Success(project));
+            => Task.FromResult(Result<ProjectDto>.Success(projects[0]));
 
         public Task<Result<ProjectDto>> GetAsync(
             string key,
             CancellationToken cancellationToken)
-            => Task.FromResult(Result<ProjectDto>.Success(project));
+            => Task.FromResult(Result<ProjectDto>.Success(projects[0]));
 
         public Task<Result<IReadOnlyList<ProjectDto>>> ListAsync(
             CancellationToken cancellationToken)
-            => Task.FromResult(Result<IReadOnlyList<ProjectDto>>.Success([project]));
+            => Task.FromResult(Result<IReadOnlyList<ProjectDto>>.Success(projects));
     }
 
     private sealed class StubBridgeService(Error? importError = null) : IGitHubBridgeService

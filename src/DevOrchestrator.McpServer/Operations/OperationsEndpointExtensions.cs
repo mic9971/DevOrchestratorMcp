@@ -29,8 +29,12 @@ public static class OperationsEndpointExtensions
             .Select(x => new { x.LeaseOwner, x.LeaseExpiresAtUtc }).ToListAsync(cancellationToken);
         var taskCounts = await db.DevelopmentTasks.AsNoTracking().GroupBy(x => x.Status)
             .Select(x => new { Status = x.Key, Count = x.Count() }).ToListAsync(cancellationToken);
-        var pendingWebhooks = await db.GitHubWebhookInbox.AsNoTracking().CountAsync(x => x.CompletedAtUtc == null, cancellationToken);
-        var retryingWebhooks = await db.GitHubWebhookInbox.AsNoTracking().CountAsync(x => x.CompletedAtUtc == null && x.AttemptCount > 1, cancellationToken);
+        var pendingWebhooks = await db.GitHubWebhookInbox.AsNoTracking()
+            .CountAsync(x => x.CompletedAtUtc == null && x.DeadLetteredAtUtc == null, cancellationToken);
+        var retryingWebhooks = await db.GitHubWebhookInbox.AsNoTracking()
+            .CountAsync(x => x.CompletedAtUtc == null && x.DeadLetteredAtUtc == null && x.AttemptCount > 1, cancellationToken);
+        var deadLetteredWebhooks = await db.GitHubWebhookInbox.AsNoTracking()
+            .CountAsync(x => x.DeadLetteredAtUtc != null, cancellationToken);
 
         return Results.Ok(new
         {
@@ -46,7 +50,12 @@ public static class OperationsEndpointExtensions
                 workers = inProgress.Where(x => !string.IsNullOrWhiteSpace(x.LeaseOwner) && x.LeaseExpiresAtUtc > now)
                     .Select(x => x.LeaseOwner!).Distinct(StringComparer.Ordinal).OrderBy(x => x).ToArray()
             },
-            webhookInbox = new { pending = pendingWebhooks, retrying = retryingWebhooks }
+            webhookInbox = new
+            {
+                pending = pendingWebhooks,
+                retrying = retryingWebhooks,
+                deadLettered = deadLetteredWebhooks
+            }
         });
     }
 
@@ -60,8 +69,20 @@ public static class OperationsEndpointExtensions
         var expiredLeases = inProgress.Count(x => x.LeaseExpiresAtUtc.HasValue && x.LeaseExpiresAtUtc.Value <= now);
         var activeWorkers = inProgress.Where(x => !string.IsNullOrWhiteSpace(x.LeaseOwner) && x.LeaseExpiresAtUtc > now)
             .Select(x => x.LeaseOwner!).Distinct(StringComparer.Ordinal).Count();
-        var pendingWebhooks = await db.GitHubWebhookInbox.AsNoTracking().CountAsync(x => x.CompletedAtUtc == null, cancellationToken);
-        var retryingWebhooks = await db.GitHubWebhookInbox.AsNoTracking().CountAsync(x => x.CompletedAtUtc == null && x.AttemptCount > 1, cancellationToken);
+        var webhookAttempts = await db.GitHubWebhookInbox.AsNoTracking()
+            .Select(x => x.AttemptCount)
+            .ToListAsync(cancellationToken);
+        var pendingWebhooks = await db.GitHubWebhookInbox.AsNoTracking()
+            .CountAsync(x => x.CompletedAtUtc == null && x.DeadLetteredAtUtc == null, cancellationToken);
+        var retryingWebhooks = await db.GitHubWebhookInbox.AsNoTracking()
+            .CountAsync(x => x.CompletedAtUtc == null && x.DeadLetteredAtUtc == null && x.AttemptCount > 1, cancellationToken);
+        var deadLetteredWebhooks = await db.GitHubWebhookInbox.AsNoTracking()
+            .CountAsync(x => x.DeadLetteredAtUtc != null, cancellationToken);
+        var taskReclaims = await db.TaskEvents.AsNoTracking()
+            .CountAsync(x => x.EventType == "task.reclaimed", cancellationToken);
+        var manualLeaseExpiries = await db.TaskEvents.AsNoTracking()
+            .CountAsync(x => x.EventType == "task.lease_expired_manually", cancellationToken);
+        var webhookRetries = webhookAttempts.Sum(x => Math.Max(0, x - 1));
 
         var text = string.Join('\n', new[]
         {
@@ -75,6 +96,14 @@ public static class OperationsEndpointExtensions
             $"devorchestrator_webhook_inbox_pending {pendingWebhooks}",
             "# TYPE devorchestrator_webhook_inbox_retrying gauge",
             $"devorchestrator_webhook_inbox_retrying {retryingWebhooks}",
+            "# TYPE devorchestrator_webhook_dead_lettered gauge",
+            $"devorchestrator_webhook_dead_lettered {deadLetteredWebhooks}",
+            "# TYPE devorchestrator_webhook_retry_total counter",
+            $"devorchestrator_webhook_retry_total {webhookRetries}",
+            "# TYPE devorchestrator_task_reclaim_total counter",
+            $"devorchestrator_task_reclaim_total {taskReclaims}",
+            "# TYPE devorchestrator_manual_lease_expiry_total counter",
+            $"devorchestrator_manual_lease_expiry_total {manualLeaseExpiries}",
             string.Empty
         });
         return Results.Text(text, "text/plain; version=0.0.4; charset=utf-8");
@@ -137,12 +166,12 @@ public static class OperationsEndpointExtensions
     {
         var item = await db.GitHubWebhookInbox.SingleOrDefaultAsync(x => x.DeliveryId == deliveryId, cancellationToken);
         if (item is null) return Results.NotFound(new { error = "webhook.not_found" });
-        var before = JsonSerializer.Serialize(new { item.CompletedAtUtc, item.LeaseExpiresAtUtc, item.NextAttemptAtUtc, item.LastError });
+        var before = JsonSerializer.Serialize(new { item.CompletedAtUtc, item.DeadLetteredAtUtc, item.LeaseExpiresAtUtc, item.NextAttemptAtUtc, item.LastError });
         var now = DateTimeOffset.UtcNow;
         item.Requeue(now);
         var actor = ResolveActor(context);
         db.SecurityAuditEvents.Add(Audit(context, actor, "webhook.replayed", "webhook", deliveryId, null, before,
-            JsonSerializer.Serialize(new { item.CompletedAtUtc, item.LeaseExpiresAtUtc, item.NextAttemptAtUtc, item.LastError })));
+            JsonSerializer.Serialize(new { item.CompletedAtUtc, item.DeadLetteredAtUtc, item.LeaseExpiresAtUtc, item.NextAttemptAtUtc, item.LastError })));
         await db.SaveChangesAsync(cancellationToken);
         return Results.Accepted(value: new { deliveryId, status = "queued" });
     }

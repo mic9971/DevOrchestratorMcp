@@ -114,7 +114,7 @@ internal static class OrchestratorModel
             entity.Property(x => x.Action).HasMaxLength(80);
             entity.Property(x => x.RepositoryUrl).HasMaxLength(500);
             entity.Property(x => x.LastError).HasMaxLength(4000);
-            entity.HasIndex(x => new { x.CompletedAtUtc, x.NextAttemptAtUtc, x.LeaseExpiresAtUtc });
+            entity.HasIndex(x => new { x.CompletedAtUtc, x.DeadLetteredAtUtc, x.NextAttemptAtUtc, x.LeaseExpiresAtUtc });
         });
 
         modelBuilder.Entity<HumanIdentityUser>(entity =>

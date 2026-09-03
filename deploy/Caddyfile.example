@@ -1,0 +1,14 @@
+# Replace with the public hostname used by the GitHub OAuth callback and webhook.
+# Caddy obtains and renews TLS certificates automatically when DNS points here
+# and ports 80/443 are reachable from the Internet.
+
+orchestrator.example.com {
+    encode zstd gzip
+    reverse_proxy 127.0.0.1:5058
+
+    header {
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "no-referrer"
+    }
+}

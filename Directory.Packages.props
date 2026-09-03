@@ -3,6 +3,7 @@
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
   </PropertyGroup>
   <ItemGroup>
+    <PackageVersion Include="ModelContextProtocol" Version="2.2.0" />
     <PackageVersion Include="ModelContextProtocol.AspNetCore" Version="2.2.0" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore" Version="8.0.30" />
     <PackageVersion Include="Microsoft.EntityFrameworkCore.Design" Version="8.0.30" />

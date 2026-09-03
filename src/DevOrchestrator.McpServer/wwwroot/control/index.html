@@ -96,7 +96,7 @@
         <article class="panel full">
           <div class="panel-head stack-mobile">
             <div><p class="eyebrow">GITHUB BRIDGE</p><h2>Webhook inbox</h2></div>
-            <select id="webhook-state-filter" aria-label="Filter webhook state"><option value="pending">Pending</option><option value="retrying">Retrying</option><option value="completed">Completed</option><option value="all">All</option></select>
+            <select id="webhook-state-filter" aria-label="Filter webhook state"><option value="pending">Pending</option><option value="retrying">Retrying</option><option value="dead-lettered">Dead-lettered</option><option value="completed">Completed</option><option value="all">All</option></select>
           </div>
           <div class="table-wrap"><table><thead><tr><th>Delivery</th><th>Event</th><th>Issue</th><th>Attempts</th><th>Received</th><th>State</th><th></th></tr></thead><tbody id="webhooks-table"></tbody></table></div>
           <div class="pager"><button id="webhooks-prev" class="ghost compact">Previous</button><span id="webhooks-page" class="muted"></span><button id="webhooks-next" class="ghost compact">Next</button></div>

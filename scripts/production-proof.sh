@@ -34,7 +34,7 @@ docker compose -f compose.yaml up --build -d
 wait_url "$BASE_URL/healthz"
 wait_url "$BASE_URL/readyz"
 
-echo "[proof] verifying operational, identity and control-plane auth"
+echo "[proof] verifying operational, identity, DLQ and control-plane auth"
 status_code="$(curl -sS -o /dev/null -w '%{http_code}' "$BASE_URL/metrics")"
 [[ "$status_code" == "401" ]]
 
@@ -61,9 +61,13 @@ curl --fail --silent \
   -H "X-DevOrchestrator-Key: $DEVORCHESTRATOR_AUDITOR_KEY" \
   "$BASE_URL/ops/status" | grep -q '"status":"ok"'
 
-curl --fail --silent \
+metrics="$(curl --fail --silent \
   -H "X-DevOrchestrator-Key: $DEVORCHESTRATOR_AUDITOR_KEY" \
-  "$BASE_URL/metrics" | grep -q '^devorchestrator_active_workers '
+  "$BASE_URL/metrics")"
+grep -q '^devorchestrator_active_workers ' <<<"$metrics"
+grep -q '^devorchestrator_webhook_dead_lettered ' <<<"$metrics"
+grep -q '^devorchestrator_webhook_retry_total ' <<<"$metrics"
+grep -q '^devorchestrator_task_reclaim_total ' <<<"$metrics"
 
 echo "[proof] verifying restart recovery"
 docker compose -f compose.yaml restart dev-orchestrator
@@ -73,7 +77,7 @@ echo "[proof] running PostgreSQL backup/restore drill"
 mkdir -p backups
 export DEVORCHESTRATOR_DOCKER_NETWORK="${COMPOSE_PROJECT_NAME}_default"
 export DEVORCHESTRATOR_PG_URL="postgresql://devorchestrator:${POSTGRES_PASSWORD}@postgres:5432/devorchestrator"
-BACKUP_FILE="$(bash ./scripts/backup-postgres.sh ./backups/phase8-proof.dump)"
+BACKUP_FILE="$(bash ./scripts/backup-postgres.sh ./backups/phase9-proof.dump)"
 
 docker compose -f compose.yaml exec -T postgres \
   psql -U devorchestrator -d postgres -v ON_ERROR_STOP=1 \
@@ -87,9 +91,9 @@ migration_count="$(docker compose -f compose.yaml exec -T postgres \
   psql -U devorchestrator -d devorchestrator_restore -tAc \
   'SELECT COUNT(*) FROM "__EFMigrationsHistory";' | tr -d '[:space:]')"
 
-if [[ -z "$migration_count" || "$migration_count" -lt 4 ]]; then
+if [[ -z "$migration_count" || "$migration_count" -lt 5 ]]; then
   echo "restore verification failed: migration_count=$migration_count" >&2
   exit 1
 fi
 
-echo "[proof] PASS: runtime, identity governance, control plane, auth, restart, backup and restore verified"
+echo "[proof] PASS: runtime, DLQ, identity governance, control plane, auth, restart, backup and restore verified"

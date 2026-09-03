@@ -27,4 +27,10 @@ public interface IGitHubWebhookInbox
         string error,
         DateTimeOffset nextAttemptAtUtc,
         CancellationToken cancellationToken);
+
+    Task DeadLetterAsync(
+        string deliveryId,
+        string error,
+        DateTimeOffset deadLetteredAtUtc,
+        CancellationToken cancellationToken);
 }

@@ -1,14 +1,17 @@
 using DevOrchestrator.Application.Abstractions;
 using DevOrchestrator.Application.Services;
+using Microsoft.Extensions.Options;
 
 namespace DevOrchestrator.McpServer.Webhooks;
 
 public sealed class GitHubWebhookBackgroundService(
     IServiceScopeFactory scopeFactory,
+    IOptions<GitHubWebhookOptions> options,
     ILogger<GitHubWebhookBackgroundService> logger) : BackgroundService
 {
     private static readonly TimeSpan InboxLease = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan IdleDelay = TimeSpan.FromSeconds(1);
+    private readonly int _maxAttempts = Math.Clamp(options.Value.WebhookMaxAttempts, 1, 100);
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -37,10 +40,10 @@ public sealed class GitHubWebhookBackgroundService(
                     continue;
                 }
 
-                await inbox.RetryAsync(
-                    lease.Notification.DeliveryId,
+                await RetryOrDeadLetterAsync(
+                    inbox,
+                    lease,
                     $"{result.Error.Code}: {result.Error.Message}",
-                    NextAttempt(lease.AttemptCount),
                     stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -58,11 +61,7 @@ public sealed class GitHubWebhookBackgroundService(
                     {
                         using var retryScope = scopeFactory.CreateScope();
                         var inbox = retryScope.ServiceProvider.GetRequiredService<IGitHubWebhookInbox>();
-                        await inbox.RetryAsync(
-                            lease.Notification.DeliveryId,
-                            ex.Message,
-                            NextAttempt(lease.AttemptCount),
-                            stoppingToken);
+                        await RetryOrDeadLetterAsync(inbox, lease, ex.Message, stoppingToken);
                     }
                     catch (Exception retryException) when (retryException is not OperationCanceledException)
                     {
@@ -71,6 +70,34 @@ public sealed class GitHubWebhookBackgroundService(
                 }
             }
         }
+    }
+
+    private async Task RetryOrDeadLetterAsync(
+        IGitHubWebhookInbox inbox,
+        GitHubWebhookInboxLease lease,
+        string error,
+        CancellationToken cancellationToken)
+    {
+        if (lease.AttemptCount >= _maxAttempts)
+        {
+            logger.LogError(
+                "GitHub webhook delivery {DeliveryId} exhausted {AttemptCount} attempts and was dead-lettered: {Error}",
+                lease.Notification.DeliveryId,
+                lease.AttemptCount,
+                error);
+            await inbox.DeadLetterAsync(
+                lease.Notification.DeliveryId,
+                error,
+                DateTimeOffset.UtcNow,
+                cancellationToken);
+            return;
+        }
+
+        await inbox.RetryAsync(
+            lease.Notification.DeliveryId,
+            error,
+            NextAttempt(lease.AttemptCount),
+            cancellationToken);
     }
 
     private static DateTimeOffset NextAttempt(int attemptCount)

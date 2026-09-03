@@ -2,6 +2,7 @@ using DevOrchestrator.Application.Abstractions;
 using DevOrchestrator.Application.Contracts;
 using DevOrchestrator.Infrastructure;
 using DevOrchestrator.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 
@@ -15,13 +16,7 @@ public sealed class WebhookInboxTests
         var directory = Path.Combine(AppContext.BaseDirectory, "inbox-test-data");
         Directory.CreateDirectory(directory);
         var databasePath = Path.Combine(directory, $"inbox-{Guid.NewGuid():N}.db");
-        var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?>
-            {
-                ["Database:Provider"] = "sqlite",
-                ["ConnectionStrings:Orchestrator"] = $"Data Source={databasePath}"
-            })
-            .Build();
+        var configuration = CreateConfiguration(databasePath);
 
         await using var provider = BuildProvider(configuration);
         try
@@ -62,18 +57,84 @@ public sealed class WebhookInboxTests
         }
         finally
         {
-            foreach (var suffix in new[] { string.Empty, "-shm", "-wal" })
-            {
-                var path = databasePath + suffix;
-                if (File.Exists(path)) File.Delete(path);
-            }
+            DeleteSqliteFiles(databasePath);
         }
     }
+
+    [Fact]
+    public async Task Dead_lettered_delivery_is_not_leased_until_operator_requeues_it()
+    {
+        var directory = Path.Combine(AppContext.BaseDirectory, "inbox-test-data");
+        Directory.CreateDirectory(directory);
+        var databasePath = Path.Combine(directory, $"inbox-dlq-{Guid.NewGuid():N}.db");
+        var configuration = CreateConfiguration(databasePath);
+
+        await using var provider = BuildProvider(configuration);
+        try
+        {
+            await provider.MigrateDatabaseAsync();
+            var now = DateTimeOffset.UtcNow;
+            var notification = new GitHubWebhookNotification(
+                "delivery-dlq", "issues", "opened", "https://github.com/mic9971/sample", 43);
+
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var inbox = scope.ServiceProvider.GetRequiredService<IGitHubWebhookInbox>();
+                Assert.True(await inbox.EnqueueAsync(notification, CancellationToken.None));
+                var lease = await inbox.TryLeaseNextAsync(now.AddSeconds(1), TimeSpan.FromMinutes(1), CancellationToken.None);
+                Assert.NotNull(lease);
+                await inbox.DeadLetterAsync("delivery-dlq", "permanent failure", now.AddSeconds(2), CancellationToken.None);
+                Assert.Null(await inbox.TryLeaseNextAsync(now.AddHours(1), TimeSpan.FromMinutes(1), CancellationToken.None));
+            }
+
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<OrchestratorDbContext>();
+                var item = await db.GitHubWebhookInbox.SingleAsync(x => x.DeliveryId == "delivery-dlq");
+                Assert.NotNull(item.DeadLetteredAtUtc);
+                Assert.Equal("permanent failure", item.LastError);
+
+                item.Requeue(now.AddMinutes(1));
+                await db.SaveChangesAsync();
+            }
+
+            await using (var scope = provider.CreateAsyncScope())
+            {
+                var inbox = scope.ServiceProvider.GetRequiredService<IGitHubWebhookInbox>();
+                var replayLease = await inbox.TryLeaseNextAsync(now.AddMinutes(2), TimeSpan.FromMinutes(1), CancellationToken.None);
+                Assert.NotNull(replayLease);
+                Assert.Equal("delivery-dlq", replayLease!.Notification.DeliveryId);
+                Assert.Equal(2, replayLease.AttemptCount);
+            }
+        }
+        finally
+        {
+            DeleteSqliteFiles(databasePath);
+        }
+    }
+
+    private static IConfiguration CreateConfiguration(string databasePath)
+        => new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Database:Provider"] = "sqlite",
+                ["ConnectionStrings:Orchestrator"] = $"Data Source={databasePath}"
+            })
+            .Build();
 
     private static ServiceProvider BuildProvider(IConfiguration configuration)
     {
         var services = new ServiceCollection();
         services.AddInfrastructure(configuration, AppContext.BaseDirectory);
         return services.BuildServiceProvider();
+    }
+
+    private static void DeleteSqliteFiles(string databasePath)
+    {
+        foreach (var suffix in new[] { string.Empty, "-shm", "-wal" })
+        {
+            var path = databasePath + suffix;
+            if (File.Exists(path)) File.Delete(path);
+        }
     }
 }

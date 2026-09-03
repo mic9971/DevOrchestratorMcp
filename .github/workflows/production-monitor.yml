@@ -1,0 +1,96 @@
+name: production-monitor
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Optional override for the production base URL
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Resolve monitor configuration
+        id: config
+        env:
+          INPUT_BASE_URL: ${{ inputs.base_url }}
+          SECRET_BASE_URL: ${{ secrets.DEVORCHESTRATOR_PRODUCTION_BASE_URL }}
+          AUDITOR_KEY: ${{ secrets.DEVORCHESTRATOR_AUDITOR_KEY }}
+        run: |
+          base_url="${INPUT_BASE_URL:-$SECRET_BASE_URL}"
+          if [[ -z "$base_url" || -z "$AUDITOR_KEY" ]]; then
+            echo "::notice::Production monitor is not configured. Set DEVORCHESTRATOR_PRODUCTION_BASE_URL and DEVORCHESTRATOR_AUDITOR_KEY."
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$base_url" in
+            https://*) ;;
+            *) echo "Production monitor requires an HTTPS URL" >&2; exit 1 ;;
+          esac
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+          echo "base_url=$base_url" >> "$GITHUB_OUTPUT"
+
+      - name: Health and readiness
+        if: steps.config.outputs.configured == 'true'
+        env:
+          BASE_URL: ${{ steps.config.outputs.base_url }}
+        run: |
+          curl --fail --show-error --silent --max-time 15 "$BASE_URL/healthz"
+          curl --fail --show-error --silent --max-time 15 "$BASE_URL/readyz"
+
+      - name: OAuth challenge remains available
+        if: steps.config.outputs.configured == 'true'
+        env:
+          BASE_URL: ${{ steps.config.outputs.base_url }}
+        run: |
+          code="$(curl -sS --max-time 15 -o /dev/null -w '%{http_code}' "$BASE_URL/auth/login?returnUrl=/control")"
+          test "$code" = "302"
+
+      - name: Operational SLO gates
+        if: steps.config.outputs.configured == 'true'
+        env:
+          BASE_URL: ${{ steps.config.outputs.base_url }}
+          AUDITOR_KEY: ${{ secrets.DEVORCHESTRATOR_AUDITOR_KEY }}
+        run: |
+          curl --fail --show-error --silent --max-time 15 \
+            -H "X-DevOrchestrator-Key: $AUDITOR_KEY" \
+            "$BASE_URL/ops/status" | grep -q '"status":"ok"'
+
+          metrics="$(curl --fail --show-error --silent --max-time 15 \
+            -H "X-DevOrchestrator-Key: $AUDITOR_KEY" \
+            "$BASE_URL/metrics")"
+
+          value() {
+            awk -v metric="$1" '$1 == metric { print $2; exit }' <<<"$metrics"
+          }
+
+          dead_lettered="$(value devorchestrator_webhook_dead_lettered)"
+          expired_leases="$(value devorchestrator_expired_task_leases)"
+          pending_webhooks="$(value devorchestrator_webhook_inbox_pending)"
+
+          test -n "$dead_lettered"
+          test -n "$expired_leases"
+          test -n "$pending_webhooks"
+
+          if (( dead_lettered > 0 )); then
+            echo "::error::There are $dead_lettered dead-lettered GitHub webhook deliveries."
+            exit 1
+          fi
+          if (( expired_leases > 0 )); then
+            echo "::error::There are $expired_leases expired worker leases requiring recovery."
+            exit 1
+          fi
+          if (( pending_webhooks > 100 )); then
+            echo "::error::Webhook inbox backlog is $pending_webhooks (>100)."
+            exit 1
+          fi
+
+          echo "Production operational gates are healthy."
