@@ -249,6 +249,8 @@ public static class ControlPlaneEndpointExtensions
         var skip = Math.Max(0, offset ?? 0);
         var take = Math.Clamp(limit ?? DefaultPageSize, 1, MaxPageSize);
         var normalizedState = string.IsNullOrWhiteSpace(state) ? "pending" : state.Trim().ToLowerInvariant();
+        if (normalizedState == "deadlettered")
+            normalizedState = "dead-lettered";
         if (normalizedState is not ("pending" or "retrying" or "dead-lettered" or "completed" or "all"))
             return Results.BadRequest(new { error = "webhook.invalid_state", state });
 
