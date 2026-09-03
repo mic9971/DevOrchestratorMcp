@@ -65,21 +65,33 @@ internal sealed class GitHubWebhookProcessor(
             }
 
             var repository = NormalizeRepository(notification.RepositoryUrl);
-            var project = projectList.Value!
-                .FirstOrDefault(x =>
+            var matches = projectList.Value!
+                .Where(x =>
                     x.IsActive &&
                     string.Equals(
                         NormalizeRepository(x.RepositoryUrl),
                         repository,
-                        StringComparison.OrdinalIgnoreCase));
+                        StringComparison.OrdinalIgnoreCase))
+                .ToArray();
 
-            if (project is null)
+            if (matches.Length == 0)
             {
                 await deliveries.CompleteAsync(notification.DeliveryId, cancellationToken);
                 return Result<GitHubWebhookProcessResult>.Success(
                     CreateOutcome(notification, "unregistered_repository"));
             }
 
+            if (matches.Length > 1)
+            {
+                await deliveries.CompleteAsync(notification.DeliveryId, cancellationToken);
+                return Result<GitHubWebhookProcessResult>.Success(
+                    CreateOutcome(
+                        notification,
+                        "ambiguous_repository",
+                        detail: $"Repository matches multiple active projects: {string.Join(", ", matches.Select(x => x.Key).OrderBy(x => x, StringComparer.Ordinal))}."));
+            }
+
+            var project = matches[0];
             if (notification.EventName.Equals("issues", StringComparison.OrdinalIgnoreCase))
             {
                 var import = await bridge.ImportPlanIssueAsync(
