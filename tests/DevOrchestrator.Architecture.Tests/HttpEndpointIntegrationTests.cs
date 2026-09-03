@@ -74,6 +74,9 @@ public sealed class HttpEndpointIntegrationTests
             Assert.Contains("Task detail loads", detailBody);
             Assert.Contains("High", detailBody);
 
+            using var deadLetterFilter = Authenticated(HttpMethod.Get, "/control/api/webhooks?state=deadlettered", "auditor-key-at-least-24-characters");
+            Assert.Equal(HttpStatusCode.OK, (await client.SendAsync(deadLetterFilter)).StatusCode);
+
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/mcp")).StatusCode);
             Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/ops/status")).StatusCode);
 
@@ -86,7 +89,11 @@ public sealed class HttpEndpointIntegrationTests
             using var metricsRequest = Authenticated(HttpMethod.Get, "/metrics", "auditor-key-at-least-24-characters");
             var metrics = await client.SendAsync(metricsRequest);
             Assert.Equal(HttpStatusCode.OK, metrics.StatusCode);
-            Assert.Contains("devorchestrator_active_workers", await metrics.Content.ReadAsStringAsync());
+            var metricsBody = await metrics.Content.ReadAsStringAsync();
+            Assert.Contains("devorchestrator_active_workers", metricsBody);
+            Assert.Contains("devorchestrator_webhook_dead_lettered", metricsBody);
+            Assert.Contains("devorchestrator_webhook_retry_total", metricsBody);
+            Assert.Contains("devorchestrator_task_reclaim_total", metricsBody);
 
             await using (var pauseScope = factory.Services.CreateAsyncScope())
             {
@@ -137,7 +144,8 @@ public sealed class HttpEndpointIntegrationTests
                     ["Security:ArchitectKey"] = "architect-key-at-least-24-characters",
                     ["Security:ImplementerKey"] = "implementer-key-at-least-24-characters",
                     ["Security:AuditorKey"] = "auditor-key-at-least-24-characters",
-                    ["GitHub:WebhookSecret"] = "integration-webhook-secret-at-least-24"
+                    ["GitHub:WebhookSecret"] = "integration-webhook-secret-at-least-24",
+                    ["GitHub:WebhookMaxAttempts"] = "3"
                 });
             });
             builder.ConfigureServices(services =>
